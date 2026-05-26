@@ -1,20 +1,22 @@
-# Implementation Plan: MPMC Queue
+# Implementation Plan: MPMC Queue (BlkRing Non-Block)
 
 **Branch**: `010-mpmc-queue` | **Date**: 2026-05-26 | **Spec**: [link](spec.md)
 
-**Input**: Lock-free MPMC queue with 2D ReadyQueue matrix and CompleteQueue for task dispatch
+**Input**: Lock-free MPMC queue using blkring (block ring) non-blocking implementation
 
 ## Summary
 
-A bounded multi-producer-multi-consumer (MPMC) queue using C11 atomics for lock-free concurrent access. Circular buffer provides O(1) enqueue/dequeue. Supports batch operations. 2D ReadyQueue matrix (task_type × org_mode) for task dispatch. Global CompleteQueue for recording task completions.
+A bounded multi-producer-multi-consumer (MPMC) queue using C11 atomics with blkring (block ring buffer) non-blocking design. The blkring approach uses atomic operations for slot state management instead of traditional head/tail indices, enabling true non-blocking behavior with bounded capacity. 2D ReadyQueue matrix (task_type × org_mode) for task dispatch. Global CompleteQueue for recording task completions. Single header file for all queue types.
+
+**Implementation**: BlkRing non-blocking with atomic slot state tracking
 
 ## Technical Context
 
 **Language/Version**: C11 (`-std=c11`)
 
-**Primary Dependencies**: Standard C library only (`<stdint.h>`, `<stdatomic.h>`, `<stdbool.h>`, `<stddef.h>`, `<string.h>`)
+**Primary Dependencies**: Standard C library only (`<stdint.h>`, `<stdatomic.h>`, `<stdbool.h>`, `<stddef.h>`, `<stdlib.h>`, `<string.h>`)
 
-**Storage**: Circular buffer in memory with fixed capacity
+**Storage**: BlkRing circular buffer in memory with fixed capacity
 
 **Testing**: Unit tests via dependency injection
 
@@ -26,19 +28,21 @@ A bounded multi-producer-multi-consumer (MPMC) queue using C11 atomics for lock-
 - O(1) enqueue and dequeue
 - Support 4+ producers and 4+ consumers concurrently
 - Batch operations process 10+ items per call
-- 12 ReadyQueues + 1 CompleteQueue
+- True non-blocking (no compare-and-swap retry loops)
 
 **Constraints**:
-- Bounded queue with configurable capacity
+- BlkRing non-blocking design with atomic slot state
 - C11 atomics only (no mutexes in hot path)
 - All inputs assumed valid (Trust the Caller)
 - Naming per Constitution XI (no redundant prefixes)
-- Header-only library design
-- 3 task types × 4 org modes = 12 ReadyQueues
-- Single global CompleteQueue
+- Header-only library design with single .c for global definitions
+- 1 header file + 1 c file total
+- Default capacity: 1024 per queue
 
 **Scale/Scope**:
-- Queue capacity: 100-10000 (configurable)
+- Queue capacity: 100-10000 (configurable, default 1024)
+- 12 ReadyQueues (3 task types × 4 org modes)
+- 1 CompleteQueue
 - 12 user stories covering MPMC + ReadyQueue + CompleteQueue
 
 ## Constitution Check
@@ -47,17 +51,18 @@ A bounded multi-producer-multi-consumer (MPMC) queue using C11 atomics for lock-
 
 | Principle | Compliance Requirement |
 |-----------|----------------------|
-| Modern C11 | C11 standard only; `_Generic`, atomics, `restrict` |
-| Callback-Based Async | Completion via atomic bits; function pointers |
-| DAG-Based Task Scheduling | DAG structure; Work-Stealing scheduler |
-| Zero-Copy Task Data Flow | Buffer descriptors in Ring Buffers |
-| Lock-Free Concurrency | C11 atomics only; no mutexes in hot paths |
-| No Blocking in Hot Paths | No sync I/O; async waits with continuation |
-| Deterministic Scheduling | Same DAG+inputs → same results |
-| Testability | Dependency injection via function pointers |
-| Header-Only Library | `static inline` functions for API |
-| Trust the Caller | No validation; undefined on invalid input |
-| Concise Naming | No redundant prefixes; concise names |
+| Modern C11 | C11 standard (`-std=c11`) only; `_Generic`, atomics, `restrict` pointers required; unsafe practices prohibited |
+| Callback-Based Async Architecture | All APIs async with callbacks; no blocking in hot paths; function pointers + userdata replace C++ lambdas |
+| DAG-Based Task Scheduling | All tasks form a DAG; cycles are defects; scheduler must respect dependency order; Work-Stealing required |
+| Zero-Copy Task Data Flow | Buffer descriptors (pointer+size), shared memory, in-place transforms; copies require benchmark justification |
+| Lock-Free Concurrency | C11 atomics required; mutexes/spinlocks prohibited in hot paths; lock-free SPSC queues for task distribution |
+| No Blocking in Hot Paths | No sync I/O or blocking waits; all waits async with continuation enqueue; bounded timeouts required |
+| Deterministic Scheduling | Same DAG+inputs produce same results; hidden global state (time, random, env) prohibited |
+| Testability & Reproducibility | Dependency injection via function pointers; mock scheduler support required; chaos testing encouraged |
+| Header-Only Library | All implementation in headers; `static inline` functions; no binary dependencies |
+| Trust the Caller | All inputs assumed correct; no validation, no exception handling, no edge case testing; undefined behavior on invalid input |
+
+**Rationale**: This is a high-performance async DAG engine in C with Work-Stealing scheduler. Header-only C design ensures maximum inlining and zero linking overhead. BlkRing provides non-blocking guarantee without CAS retry loops.
 
 ## Project Structure
 
@@ -65,110 +70,25 @@ A bounded multi-producer-multi-consumer (MPMC) queue using C11 atomics for lock-
 
 ```text
 include/dag/
-├── mpmc_queue.h     # MPMC Queue API (static inline functions)
-├── mpmc_queue.c     # Global queue definitions
-├── ready_queue.h    # 2D ReadyQueue matrix API
-└── ready_queue.c    # Global ReadyQueue matrix definition
+├── mpmc_queue.h     # All queue APIs (MPMC, ReadyQueue matrix, CompleteQueue) - BlkRing non-block
+└── mpmc_queue.c    # Global queue instance definitions only
 ```
 
-**Header-Only Enforcement**: All API in headers with `static inline`. Only .c file for global instance definition.
+**BlkRing Non-Block Design**:
+- Each slot has atomic state (EMPTY/FILL/COMPLETE)
+- Enqueue writes to slot and atomically updates state to FILL
+- Dequeue reads slot state and atomically marks COMPLETE then EMPTY
+- No compare-and-swap retry loops - single atomic operation per state transition
+- Producer and consumer indices track slots for O(1) access
 
-## Phase 1: Design
+**Default Capacities**:
+- ReadyQueue: 1024 per queue (12 queues = ~12KB total buffer)
+- CompleteQueue: 1024
 
-### mpmc_queue.h - Core MPMC Queue API
+## Complexity Tracking
 
-```c
-#ifndef DAG_MPMC_QUEUE_H
-#define DAG_MPMC_QUEUE_H
+> **Fill ONLY if Constitution Check has violations that must be justified**
 
-#include <stdint.h>
-#include <stdatomic.h>
-#include <stdbool.h>
-#include <stddef.h>
-
-typedef enum {
-    MPMC_OK    = 0,
-    MPMC_FULL  = 1,
-    MPMC_EMPTY = 2,
-} mpmc_status_t;
-
-typedef struct {
-    void *buffer;
-    size_t capacity;
-    size_t elem_size;
-    _Atomic size_t head;
-    _Atomic size_t tail;
-} mpmc_queue_t;
-
-static inline int mpmc_init(mpmc_queue_t *q, size_t capacity, size_t elem_size);
-static inline size_t mpmc_idx(mpmc_queue_t *q, size_t pos);
-static inline mpmc_status_t mpmc_enqueue(mpmc_queue_t *q, const void *item);
-static inline mpmc_status_t mpmc_dequeue(mpmc_queue_t *q, void *item);
-static inline size_t mpmc_enqueue_batch(mpmc_queue_t *q, const void *items, size_t count);
-static inline size_t mpmc_dequeue_batch(mpmc_queue_t *q, void *items, size_t count);
-static inline size_t mpmc_size(mpmc_queue_t *q);
-
-#endif
-```
-
-### ready_queue.h - 2D ReadyQueue Matrix API
-
-```c
-#ifndef DAG_READY_QUEUE_H
-#define DAG_READY_QUEUE_H
-
-#include "mpmc_queue.h"
-#include "task.h"
-
-/* 2D matrix: task_type × org_mode = 3 × 4 = 12 queues */
-extern mpmc_queue_t g_ready_queues[TASK_TYPE_COUNT][ORG_MODE_COUNT];
-
-static inline mpmc_queue_t *ready_queue_get(task_type_t type, org_mode_t mode) {
-    return &g_ready_queues[type][mode];
-}
-
-static inline mpmc_status_t ready_enqueue(task_type_t type, org_mode_t mode, const void *item) {
-    return mpmc_enqueue(&g_ready_queues[type][mode], item);
-}
-
-static inline mpmc_status_t ready_dequeue(task_type_t type, org_mode_t mode, void *item) {
-    return mpmc_dequeue(&g_ready_queues[type][mode], item);
-}
-
-#endif
-```
-
-### complete_queue.h - Global CompleteQueue API
-
-```c
-#ifndef DAG_COMPLETE_QUEUE_H
-#define DAG_COMPLETE_QUEUE_H
-
-#include "mpmc_queue.h"
-
-/* Single global CompleteQueue for task completion notifications */
-extern mpmc_queue_t g_complete_queue;
-
-static inline mpmc_status_t complete_enqueue(const void *item) {
-    return mpmc_enqueue(&g_complete_queue, item);
-}
-
-static inline mpmc_status_t complete_dequeue(void *item) {
-    return mpmc_dequeue(&g_complete_queue, item);
-}
-
-#endif
-```
-
-### Key Design Decisions
-
-1. **MPMC as Foundation**: Core queue type used by both ReadyQueue matrix and CompleteQueue
-2. **2D Matrix**: g_ready_queues[TASK_TYPE_COUNT][ORG_MODE_COUNT] = g_ready_queues[3][4]
-3. **Global Instances**: Single g_complete_queue, 12 g_ready_queues entries
-4. **Concise Naming**: mpmc_* for core queue, ready_* for 2D access, complete_* for completion
-5. **Task Type Indexing**: task_type and org_mode enums used directly as array indices
-6. **Trust the Caller**: No validation; caller ensures valid type/mode values
-
----
-
-**Status**: Plan complete. Ready for `/speckit-tasks`.
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|-------------------------------------|
+| BlkRing complexity | True non-blocking without CAS retry | Simple atomic head/tail has CAS retry under contention |
