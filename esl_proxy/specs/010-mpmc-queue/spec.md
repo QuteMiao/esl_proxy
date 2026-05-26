@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "mpmc队列"
+**Input**: User description: "mpmc队列" and "010-mpmc-queue创建各种任务类型的全局ReadyQueue，用于任务下发"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -133,6 +133,38 @@ A system operator configures maximum batch sizes and handles partial batch resul
 
 ---
 
+### User Story 9 - Per-TaskType ReadyQueues (Priority: P1)
+
+A system operator maintains separate ReadyQueues for each task type (CUBE, VECTOR, MIX). The DAG scheduler enqueues tasks into the appropriate type-specific queue based on the task descriptor type field. Workers consume from their type-specific queue, enabling type-aware task distribution.
+
+**Why this priority**: Different task types may require different worker resources or scheduling policies. Separate queues per task type enable efficient type-aware task distribution and load balancing.
+
+**Independent Test**: Can be verified by enqueueing tasks of different types into their respective queues and confirming workers receive tasks matching their type.
+
+**Acceptance Scenarios**:
+
+1. **Given** task type CUBE with 5 tasks enqueued, **When** workers consume from CUBE queue, **Then** all 5 CUBE tasks are received
+2. **Given** task type VECTOR with 3 tasks and MIX with 2 tasks, **When** workers consume from each queue, **Then** VECTOR workers receive only VECTOR tasks, MIX workers receive only MIX tasks
+3. **Given** task types CUBE, VECTOR, MIX each have tasks pending, **When** scheduler enqueues new tasks, **Then** each task is placed in the queue matching its type
+
+---
+
+### User Story 10 - Global ReadyQueue Access (Priority: P1)
+
+A system operator accesses global ReadyQueues by task type. The global queues are globally visible and accessible via the task type index, enabling O(1) lookup of the appropriate queue for any task.
+
+**Why this priority**: Global visibility enables any component (scheduler, workers) to access the correct queue without passing queue references. Task type indexing provides O(1) access.
+
+**Independent Test**: Can be verified by looking up the queue for each task type and confirming correct queue is returned.
+
+**Acceptance Scenarios**:
+
+1. **Given** task type CUBE, **When** the scheduler accesses the CUBE ReadyQueue, **Then** the correct queue is found via type-based indexing
+2. **Given** task types CUBE, VECTOR, MIX, **When** any component needs to enqueue a task, **Then** it can directly access the appropriate queue via task type
+3. **Given** the system has 3 task types, **When** looking up any ReadyQueue, **Then** lookup completes in O(1) time
+
+---
+
 ### Edge Cases
 
 - What happens when multiple producers enqueue concurrently at the same slot?
@@ -143,6 +175,8 @@ A system operator configures maximum batch sizes and handles partial batch resul
 - What happens when batch enqueue attempts more items than remaining capacity?
 - What happens when batch dequeue requests more items than are available?
 - What is the maximum batch size supported?
+- What happens when a task type is added or removed from the system?
+- What happens when all ReadyQueues are empty (no work available)?
 
 ## Requirements *(mandatory)*
 
@@ -165,6 +199,10 @@ A system operator configures maximum batch sizes and handles partial batch resul
 - **FR-015**: The queue MUST support batch dequeue of multiple items in a single operation
 - **FR-016**: Batch dequeue MUST return the count of items actually dequeued
 - **FR-017**: Batch dequeue MUST return partial results when fewer items than requested are available
+- **FR-018**: A separate ReadyQueue MUST exist for each task type (CUBE, VECTOR, MIX)
+- **FR-019**: ReadyQueues MUST be globally visible and accessible by task type
+- **FR-020**: ReadyQueue lookup by task type MUST complete in O(1) time
+- **FR-021**: Tasks MUST be enqueued into the queue matching their type field
 
 ### Key Entities *(include if feature involves data)*
 
@@ -176,6 +214,8 @@ A system operator configures maximum batch sizes and handles partial batch resul
 - **Batch Enqueue**: Operation that adds multiple items to the queue in a single call. Returns count of items successfully enqueued.
 - **Batch Dequeue**: Operation that removes multiple items from the queue in a single call. Returns count of items actually dequeued.
 - **Batch Count**: Return value indicating how many items were processed in a batch operation.
+- **ReadyQueue**: Per-task-type MPMC queue for holding tasks ready to be dispatched to workers.
+- **TaskType**: Classification of task execution model (CUBE, VECTOR, MIX). Used to index into ReadyQueue array.
 
 ## Success Criteria *(mandatory)*
 
@@ -191,6 +231,9 @@ A system operator configures maximum batch sizes and handles partial batch resul
 - **SC-008**: Batch enqueue processes at least 10 items in a single operation
 - **SC-009**: Batch dequeue processes at least 10 items in a single operation
 - **SC-010**: Partial batch results accurately report actual item count
+- **SC-011**: System maintains at least 3 ReadyQueues (one per task type)
+- **SC-012**: ReadyQueue access by task type completes in O(1) time
+- **SC-013**: Tasks are correctly routed to type-specific queues
 
 ## Assumptions
 
@@ -200,3 +243,5 @@ A system operator configures maximum batch sizes and handles partial batch resul
 - The MPMC queue complements the existing ring buffer infrastructure - ring buffers store task metadata, MPMC queue dispatches tasks to workers
 - Lock-free implementation uses C11 atomics only (no mutexes/spinlocks in hot path)
 - Queue follows Constitution XI naming conventions (no dag_ prefix)
+- Task types are fixed at compile time (CUBE, VECTOR, MIX)
+- There are exactly 3 task types, so 3 global ReadyQueues are needed

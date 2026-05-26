@@ -32,7 +32,8 @@
 ## Notes
 
 - All items pass - spec is ready for /speckit-plan
-- 8 user stories (P1-P3 priority) - extended with batch operations
-- User Story 6-8: Batch enqueue/dequeue operations (P2 priority)
+- 10 user stories (P1-P3 priority)
+- User Story 9-10: Per-TaskType ReadyQueues (P1 priority)
+- Extends MPMC queue with global ReadyQueues per task type
 - Integrates with existing ring buffer infrastructure (008-task, 009-ring-buffer)
 - Lock-free design per Constitution principles
