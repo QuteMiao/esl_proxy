@@ -1,0 +1,33 @@
+# C build artifacts
+*.o
+*.a
+*.so
+*.dll
+*.exe
+
+# Build directories
+build/
+bin/
+obj/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Editor swap files
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env*

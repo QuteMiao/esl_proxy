@@ -42,17 +42,18 @@
 
 | Principle | Compliance Requirement |
 |-----------|----------------------|
-| Modern C++17/20 | C++17/20 features only; raw new/delete prohibited; smart pointers and allocators required; C++17 memory model for concurrency |
-| Async-First Architecture | All APIs async by default; synchronous blocking in hot paths prohibited; coroutines preferred |
-| DAG-Based Task Scheduling | All tasks form a DAG; cycles are defects; scheduler must respect dependency order; Work-Stealing algorithm required |
-| Zero-Copy Task Data Flow | Use std::span, shared_ptr, move semantics; copies in hot paths require benchmark justification |
-| Lock-Free Concurrency | Lock-free data structures required; mutexes/spinlocks prohibited in hot paths; atomic operations mandatory |
-| No Blocking in Hot Paths | No sync I/O or blocking waits; all waits must be async with callbacks/continuations |
-| Deterministic Scheduling | Same DAG+inputs must produce same results; hidden global state (time, random) prohibited |
-| Testability & Reproducibility | All DAG components independently testable; mock scheduler policies required; chaos testing encouraged |
-| Header-Only Library | Header-only design mandatory; no heavy third-party runtimes; minimal build system (CMake/single header) |
+| Modern C11 | C11 standard (`-std=c11`) only; `_Generic`, atomics, `restrict` pointers required; unsafe practices prohibited |
+| Callback-Based Async Architecture | All APIs async with callbacks; no blocking in hot paths; function pointers + userdata replace C++ lambdas |
+| DAG-Based Task Scheduling | All tasks form a DAG; cycles are defects; scheduler must respect dependency order; Work-Stealing required |
+| Zero-Copy Task Data Flow | Buffer descriptors (pointer+size), shared memory, in-place transforms; copies require benchmark justification |
+| Lock-Free Concurrency | C11 atomics required; mutexes/spinlocks prohibited in hot paths; lock-free SPSC queues for task distribution |
+| No Blocking in Hot Paths | No sync I/O or blocking waits; all waits async with continuation enqueue; bounded timeouts required |
+| Deterministic Scheduling | Same DAG+inputs produce same results; hidden global state (time, random, env) prohibited |
+| Testability & Reproducibility | Dependency injection via function pointers; mock scheduler support required; chaos testing encouraged |
+| Header-Only Library | All implementation in headers; `static inline` functions; no binary dependencies |
+| Trust the Caller | All inputs assumed correct; no validation, no exception handling, no edge case testing; undefined behavior on invalid input |
 
-**Rationale**: This is a high-performance async DAG engine with Work-Stealing scheduler. Header-only design ensures maximum optimization through inlining.
+**Rationale**: This is a high-performance async DAG engine in C with Work-Stealing scheduler. Header-only C design ensures maximum inlining and zero linking overhead.
 
 ## Project Structure
 
