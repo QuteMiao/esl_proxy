@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "mpmc队列" and "010-mpmc-queue创建各种任务类型的全局ReadyQueue，用于任务下发" and "010-mpmc-queue创建各种任务类型叠加各种组织类型的全局ReadyQueue，用于任务下发"
+**Input**: User description: "mpmc队列", "010-mpmc-queue创建各种任务类型的全局ReadyQueue，用于任务下发", "010-mpmc-queue创建各种任务类型叠加各种组织类型的全局ReadyQueue，用于任务下发", and "010-mpmc-queue创建CompleteQueue，用于记录已完成任务"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -165,6 +165,37 @@ A system operator accesses global ReadyQueues by both task type and org_mode. Th
 
 ---
 
+### User Story 11 - CompleteQueue for Task Completion Tracking (Priority: P1)
+
+A system operator records completed tasks in a global CompleteQueue. When workers finish executing tasks, they enqueue task IDs or results to the CompleteQueue. This enables the DAG scheduler to track task completion, trigger downstream task dependencies, and support task completion callbacks.
+
+**Why this priority**: The CompleteQueue provides a central mechanism for tracking task completion status. Without it, the scheduler cannot know when tasks are done or trigger dependent task execution.
+
+**Independent Test**: Can be verified by enqueueing completed task IDs into CompleteQueue and confirming they are available for consumption by the completion tracking system.
+
+**Acceptance Scenarios**:
+
+1. **Given** a worker completes task ID 42, **When** it enqueues the task ID to CompleteQueue, **Then** the completion tracking system can dequeue and process it
+2. **Given** multiple workers complete tasks concurrently, **When** they enqueue completion notifications, **Then** all notifications are recorded in order
+3. **Given** CompleteQueue has 100 completed task notifications, **When** the scheduler dequeues them, **Then** it can update DAG state and trigger waiting dependent tasks
+
+---
+
+### User Story 12 - Global CompleteQueue Access (Priority: P1)
+
+A system operator accesses the global CompleteQueue from any worker thread. The CompleteQueue is globally visible and accessible via a single global variable, enabling O(1) enqueue access for completion notifications.
+
+**Why this priority**: Global visibility enables any worker thread to enqueue completion notifications without needing queue references passed as parameters. Single global instance simplifies worker implementation.
+
+**Independent Test**: Can be verified by confirming the CompleteQueue global variable exists and is accessible from worker threads.
+
+**Acceptance Scenarios**:
+
+1. **Given** the CompleteQueue global variable exists, **When** any worker thread needs to record completion, **Then** it can access the queue directly
+2. **Given** CompleteQueue is globally accessible, **When** worker threads complete tasks, **Then** they do not need queue references passed as parameters
+
+---
+
 ### Edge Cases
 
 - What happens when multiple producers enqueue concurrently at the same slot?
@@ -177,6 +208,8 @@ A system operator accesses global ReadyQueues by both task type and org_mode. Th
 - What is the maximum batch size supported?
 - What happens when a task type is added or removed from the system?
 - What happens when all ReadyQueues are empty (no work available)?
+- What happens when CompleteQueue is full and cannot accept more completions?
+- What happens when CompleteQueue overflows and old completions are overwritten?
 
 ## Requirements *(mandatory)*
 
@@ -206,6 +239,9 @@ A system operator accesses global ReadyQueues by both task type and org_mode. Th
 - **FR-022**: A separate ReadyQueue MUST exist for each combination of task type AND org_mode
 - **FR-023**: ReadyQueue lookup by (task_type, org_mode) MUST complete in O(1) time
 - **FR-024**: Tasks MUST be enqueued into the queue matching both their type and org_mode fields
+- **FR-025**: A global CompleteQueue MUST exist for recording completed task notifications
+- **FR-026**: CompleteQueue MUST be globally visible and accessible from any worker thread
+- **FR-027**: Workers MUST be able to enqueue completion notifications without needing queue references
 
 ### Key Entities *(include if feature involves data)*
 
@@ -220,6 +256,7 @@ A system operator accesses global ReadyQueues by both task type and org_mode. Th
 - **ReadyQueue**: Per-(task_type, org_mode) MPMC queue for holding tasks ready to be dispatched to workers.
 - **TaskType**: Classification of task execution model (CUBE, VECTOR, MIX). Used as first dimension of ReadyQueue indexing.
 - **OrgMode**: Organization mode for task instances (SINGLE, GROUP, SPMD_SYNC, SPMD_ASYNC). Used as second dimension of ReadyQueue indexing.
+- **CompleteQueue**: Global MPMC queue for recording completed task notifications. Enables scheduler to track task completion and trigger dependent tasks.
 
 ## Success Criteria *(mandatory)*
 
@@ -238,6 +275,8 @@ A system operator accesses global ReadyQueues by both task type and org_mode. Th
 - **SC-011**: System maintains at least 12 ReadyQueues (3 task types × 4 org_modes)
 - **SC-012**: ReadyQueue access by (task_type, org_mode) completes in O(1) time
 - **SC-013**: Tasks are correctly routed to (task_type, org_mode)-specific queues
+- **SC-014**: CompleteQueue exists and is globally accessible
+- **SC-015**: Completed task notifications are recorded without needing queue references
 
 ## Assumptions
 

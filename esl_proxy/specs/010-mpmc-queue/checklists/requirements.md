@@ -32,9 +32,8 @@
 ## Notes
 
 - All items pass - spec is ready for /speckit-plan
-- 10 user stories (P1-P3 priority)
-- User Story 9-10: 2D ReadyQueue matrix (task_type × org_mode)
-- 12 total queues: 3 task types × 4 org modes
-- Extends MPMC queue with global 2D ReadyQueue matrix
+- 12 user stories (P1-P3 priority)
+- User Story 11-12: CompleteQueue for task completion tracking
+- CompleteQueue is globally visible single instance
 - Integrates with existing ring buffer infrastructure (008-task, 009-ring-buffer)
 - Lock-free design per Constitution principles
