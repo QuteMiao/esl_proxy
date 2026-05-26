@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "mpmc队列" and "010-mpmc-queue创建各种任务类型的全局ReadyQueue，用于任务下发"
+**Input**: User description: "mpmc队列" and "010-mpmc-queue创建各种任务类型的全局ReadyQueue，用于任务下发" and "010-mpmc-queue创建各种任务类型叠加各种组织类型的全局ReadyQueue，用于任务下发"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -133,35 +133,35 @@ A system operator configures maximum batch sizes and handles partial batch resul
 
 ---
 
-### User Story 9 - Per-TaskType ReadyQueues (Priority: P1)
+### User Story 9 - Per-TaskType+OrgMode ReadyQueues (Priority: P1)
 
-A system operator maintains separate ReadyQueues for each task type (CUBE, VECTOR, MIX). The DAG scheduler enqueues tasks into the appropriate type-specific queue based on the task descriptor type field. Workers consume from their type-specific queue, enabling type-aware task distribution.
+A system operator maintains separate ReadyQueues for each combination of task type and organization mode (SINGLE, GROUP, SPMD_SYNC, SPMD_ASYNC). The DAG scheduler enqueues tasks into the appropriate queue based on both the task descriptor type and org_mode fields. Workers consume from their specific queue, enabling fine-grained task distribution.
 
-**Why this priority**: Different task types may require different worker resources or scheduling policies. Separate queues per task type enable efficient type-aware task distribution and load balancing.
+**Why this priority**: Different task types combined with different organization modes may require different worker resources or scheduling policies. A 2D queue matrix (type × org_mode) enables efficient distribution of tasks with different execution characteristics.
 
-**Independent Test**: Can be verified by enqueueing tasks of different types into their respective queues and confirming workers receive tasks matching their type.
+**Independent Test**: Can be verified by enqueueing tasks of different type/org_mode combinations into their respective queues and confirming workers receive tasks matching their specific combination.
 
 **Acceptance Scenarios**:
 
-1. **Given** task type CUBE with 5 tasks enqueued, **When** workers consume from CUBE queue, **Then** all 5 CUBE tasks are received
-2. **Given** task type VECTOR with 3 tasks and MIX with 2 tasks, **When** workers consume from each queue, **Then** VECTOR workers receive only VECTOR tasks, MIX workers receive only MIX tasks
-3. **Given** task types CUBE, VECTOR, MIX each have tasks pending, **When** scheduler enqueues new tasks, **Then** each task is placed in the queue matching its type
+1. **Given** task type CUBE with org_mode SINGLE has 5 tasks enqueued, **When** workers consume from that queue, **Then** all 5 CUBE+SINGLE tasks are received
+2. **Given** task type VECTOR with org_mode SPMD_ASYNC has 3 tasks and CUBE with org_mode GROUP has 2 tasks, **When** workers consume from each queue, **Then** workers receive only tasks matching their specific type+org_mode combination
+3. **Given** 3 task types × 4 org_modes = 12 queue combinations, **When** scheduler enqueues tasks, **Then** each task is placed in the queue matching its specific type and org_mode
 
 ---
 
-### User Story 10 - Global ReadyQueue Access (Priority: P1)
+### User Story 10 - Global ReadyQueue Matrix Access (Priority: P1)
 
-A system operator accesses global ReadyQueues by task type. The global queues are globally visible and accessible via the task type index, enabling O(1) lookup of the appropriate queue for any task.
+A system operator accesses global ReadyQueues by both task type and org_mode. The global queue matrix is globally visible and accessible via 2D indexing (task_type, org_mode), enabling O(1) lookup of the appropriate queue for any task.
 
-**Why this priority**: Global visibility enables any component (scheduler, workers) to access the correct queue without passing queue references. Task type indexing provides O(1) access.
+**Why this priority**: Global visibility with 2D indexing enables any component (scheduler, workers) to access the correct queue without passing queue references. Combined type+org_mode indexing provides O(1) access.
 
-**Independent Test**: Can be verified by looking up the queue for each task type and confirming correct queue is returned.
+**Independent Test**: Can be verified by looking up the queue for each type+org_mode combination and confirming correct queue is returned.
 
 **Acceptance Scenarios**:
 
-1. **Given** task type CUBE, **When** the scheduler accesses the CUBE ReadyQueue, **Then** the correct queue is found via type-based indexing
-2. **Given** task types CUBE, VECTOR, MIX, **When** any component needs to enqueue a task, **Then** it can directly access the appropriate queue via task type
-3. **Given** the system has 3 task types, **When** looking up any ReadyQueue, **Then** lookup completes in O(1) time
+1. **Given** task type CUBE and org_mode SPMD_SYNC, **When** the scheduler accesses the corresponding ReadyQueue, **Then** the correct queue is found via 2D type+org_mode indexing
+2. **Given** task types CUBE, VECTOR, MIX and org_modes SINGLE, GROUP, SPMD_SYNC, SPMD_ASYNC, **When** any component needs to enqueue a task, **Then** it can directly access the appropriate queue via task type and org_mode
+3. **Given** 12 total queue combinations (3 types × 4 org_modes), **When** looking up any ReadyQueue, **Then** lookup completes in O(1) time
 
 ---
 
@@ -203,6 +203,9 @@ A system operator accesses global ReadyQueues by task type. The global queues ar
 - **FR-019**: ReadyQueues MUST be globally visible and accessible by task type
 - **FR-020**: ReadyQueue lookup by task type MUST complete in O(1) time
 - **FR-021**: Tasks MUST be enqueued into the queue matching their type field
+- **FR-022**: A separate ReadyQueue MUST exist for each combination of task type AND org_mode
+- **FR-023**: ReadyQueue lookup by (task_type, org_mode) MUST complete in O(1) time
+- **FR-024**: Tasks MUST be enqueued into the queue matching both their type and org_mode fields
 
 ### Key Entities *(include if feature involves data)*
 
@@ -214,8 +217,9 @@ A system operator accesses global ReadyQueues by task type. The global queues ar
 - **Batch Enqueue**: Operation that adds multiple items to the queue in a single call. Returns count of items successfully enqueued.
 - **Batch Dequeue**: Operation that removes multiple items from the queue in a single call. Returns count of items actually dequeued.
 - **Batch Count**: Return value indicating how many items were processed in a batch operation.
-- **ReadyQueue**: Per-task-type MPMC queue for holding tasks ready to be dispatched to workers.
-- **TaskType**: Classification of task execution model (CUBE, VECTOR, MIX). Used to index into ReadyQueue array.
+- **ReadyQueue**: Per-(task_type, org_mode) MPMC queue for holding tasks ready to be dispatched to workers.
+- **TaskType**: Classification of task execution model (CUBE, VECTOR, MIX). Used as first dimension of ReadyQueue indexing.
+- **OrgMode**: Organization mode for task instances (SINGLE, GROUP, SPMD_SYNC, SPMD_ASYNC). Used as second dimension of ReadyQueue indexing.
 
 ## Success Criteria *(mandatory)*
 
@@ -231,9 +235,9 @@ A system operator accesses global ReadyQueues by task type. The global queues ar
 - **SC-008**: Batch enqueue processes at least 10 items in a single operation
 - **SC-009**: Batch dequeue processes at least 10 items in a single operation
 - **SC-010**: Partial batch results accurately report actual item count
-- **SC-011**: System maintains at least 3 ReadyQueues (one per task type)
-- **SC-012**: ReadyQueue access by task type completes in O(1) time
-- **SC-013**: Tasks are correctly routed to type-specific queues
+- **SC-011**: System maintains at least 12 ReadyQueues (3 task types × 4 org_modes)
+- **SC-012**: ReadyQueue access by (task_type, org_mode) completes in O(1) time
+- **SC-013**: Tasks are correctly routed to (task_type, org_mode)-specific queues
 
 ## Assumptions
 
@@ -243,5 +247,6 @@ A system operator accesses global ReadyQueues by task type. The global queues ar
 - The MPMC queue complements the existing ring buffer infrastructure - ring buffers store task metadata, MPMC queue dispatches tasks to workers
 - Lock-free implementation uses C11 atomics only (no mutexes/spinlocks in hot path)
 - Queue follows Constitution XI naming conventions (no dag_ prefix)
-- Task types are fixed at compile time (CUBE, VECTOR, MIX)
-- There are exactly 3 task types, so 3 global ReadyQueues are needed
+- Task types are fixed at compile time (CUBE, VECTOR, MIX) - 3 types
+- Org modes are fixed at compile time (SINGLE, GROUP, SPMD_SYNC, SPMD_ASYNC) - 4 modes
+- There are 3×4=12 total queue combinations (task_type × org_mode)
