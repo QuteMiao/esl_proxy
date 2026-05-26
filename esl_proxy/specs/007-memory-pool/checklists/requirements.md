@@ -1,7 +1,7 @@
 # Specification Quality Checklist: Memory Pool
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-05-22
+**Created**: 2026-05-26 (updated)
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,4 +31,14 @@
 
 ## Notes
 
-- All items pass - spec is ready for /speckit-clarify or /speckit-plan
+- Updated 2026-05-26: Removed User Story 8 (CompleteQueue-based updates) per user input
+- Updated 2026-05-26: Added User Story 9 (SPSC mode) per user input
+- Updated 2026-05-26: Added User Story 10 (Manager thread for auto release) per user input
+- Minimum uncompleted TaskID now updated ONLY from Task State Ring Buffer
+- FR-016, FR-017: Task State Ring Buffer based updates
+- FR-018: Manager thread handles when2free-based automatic release
+- SC-008: Task State Ring Buffer state changes reflected within 1μs
+- Assumptions: CompleteQueue NOT used for minimum uncompleted TaskID updates
+- Assumptions: SPSC (Single Producer Single Consumer) mode
+- Assumptions: Manager thread responsible for when2free-based release
+- Total User Stories: 10 (US1-US10)
