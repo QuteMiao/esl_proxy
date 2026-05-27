@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include "task.h"
 
 #define RING_SIZE 4096
@@ -43,6 +44,39 @@ static inline int state_put_if_empty(uint32_t idx, uint32_t val) {
         entry, &expected, val,
         memory_order_acquire, memory_order_acquire
     ) ? 0 : -1;
+}
+
+/*
+ * Get task state from ring buffer by task ID
+ */
+static inline task_state_t task_state_get(uint32_t task_id) {
+    uint32_t idx = task_id & RING_MASK;
+    return (task_state_t)atomic_load_explicit(
+        &g_state_buf[idx], memory_order_acquire);
+}
+
+/*
+ * Set task state in ring buffer
+ */
+static inline void task_state_set(uint32_t task_id, task_state_t state) {
+    uint32_t idx = task_id & RING_MASK;
+    atomic_store_explicit(&g_state_buf[idx], (uint32_t)state, memory_order_release);
+}
+
+/*
+ * Compute minimum uncompleted task ID from ring buffer
+ * Returns: minimum ID with state != COMPLETED, or UINT32_MAX if all completed
+ */
+static inline uint32_t ring_min_uncompleted(void) {
+    uint32_t min_id = UINT32_MAX;
+    for (uint32_t i = 0; i < RING_SIZE; i++) {
+        task_state_t state = (task_state_t)atomic_load_explicit(
+            &g_state_buf[i], memory_order_acquire);
+        if (state != TASK_STATE_COMPLETED && state != TASK_STATE_EMPTY) {
+            return i;
+        }
+    }
+    return min_id;
 }
 
 #endif /* DAG_RING_BUF_H */

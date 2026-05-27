@@ -1,7 +1,7 @@
 # Specification Quality Checklist: Task
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-05-26
+**Created**: 2026-05-26 (updated 2026-05-27)
 **Feature**: [link](../spec.md)
 
 ## Content Quality
@@ -31,7 +31,10 @@
 
 ## Notes
 
-- All items pass - spec is ready for /speckit-plan
-- Added predecessor count to dependency information (alongside successor count and successor nodes)
-- FR-010 updated to include predecessor count
-- Key Entities Successor Information updated with predecessor count
+- Updated 2026-05-27: Merged 008-task-state content into 008-task
+- Added User Story 7 (Task State Tracking) and User Story 8 (Task State Ring Buffer Interface)
+- Renumbered subsequent user stories (User Story 6 → 9)
+- Added FR-012 to FR-016 for task state tracking requirements
+- Added Key Entities for Task State Ring Buffer, Task State Enum, Minimum Uncompleted Tracker
+- Added SC-006 to SC-009 for task state success criteria
+- Updated Assumptions with task state information

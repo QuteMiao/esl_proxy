@@ -43,6 +43,14 @@ typedef enum {
     ORG_MODE_SPMD_ASYNC = 3,
 } org_mode_t;
 
+
+typedef enum {
+    TASK_STATE_EMPTY    = 0,
+    TASK_STATE_PENDING  = 1,
+    TASK_STATE_RUNNING  = 2,
+    TASK_STATE_COMPLETED = 3,
+} task_state_t;
+
 /*
  * Task descriptor - description ONLY, no execution state
  *

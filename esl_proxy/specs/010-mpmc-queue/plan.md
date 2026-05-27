@@ -1,49 +1,32 @@
-# Implementation Plan: MPMC Queue (BlkRing Non-Block)
+# Implementation Plan: MPMC Queue
 
-**Branch**: `010-mpmc-queue` | **Date**: 2026-05-26 | **Spec**: [link](spec.md)
+**Branch**: `010-mpmc-queue` | **Date**: 2026-05-27 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Lock-free MPMC queue using blkring (block ring) non-blocking implementation
+**Input**: Feature specification from `/specs/010-mpmc-queue/spec.md`
 
 ## Summary
 
-A bounded multi-producer-multi-consumer (MPMC) queue using C11 atomics with blkring (block ring buffer) non-blocking design. The blkring approach uses atomic operations for slot state management instead of traditional head/tail indices, enabling true non-blocking behavior with bounded capacity. 2D ReadyQueue matrix (task_type × org_mode) for task dispatch. Global CompleteQueue for recording task completions. Single header file for all queue types.
-
-**Implementation**: BlkRing non-blocking with atomic slot state tracking
+Implement a lock-free MPMC (Multi-Producer-Multi-Consumer) queue using BlkRing design with atomic slot states (EMPTY/FILL/COMPLETE). The system provides 12 ReadyQueues (3 task types × 4 org_modes) for task dispatch and 1 global CompleteQueue for task completion tracking. All operations are non-blocking with O(1) enqueue/dequeue using single CAS per slot.
 
 ## Technical Context
 
 **Language/Version**: C11 (`-std=c11`)
 
-**Primary Dependencies**: Standard C library only (`<stdint.h>`, `<stdatomic.h>`, `<stdbool.h>`, `<stddef.h>`, `<stdlib.h>`, `<string.h>`)
+**Primary Dependencies**: None (header-only, standard C library only)
 
-**Storage**: BlkRing circular buffer in memory with fixed capacity
+**Storage**: N/A (in-memory queues)
 
-**Testing**: Unit tests via dependency injection
+**Testing**: Custom unit tests via `/specs/010-mpmc-queue/tasks.md` verification
 
-**Target Platform**: Cross-platform (Linux/macOS)
+**Target Platform**: Linux/macOS (C11 atomics)
 
-**Project Type**: Header-only C library for DAG scheduling
+**Project Type**: Header-only C library (DAG engine component)
 
-**Performance Goals**:
-- O(1) enqueue and dequeue
-- Support 4+ producers and 4+ consumers concurrently
-- Batch operations process 10+ items per call
-- True non-blocking (no compare-and-swap retry loops)
+**Performance Goals**: O(1) enqueue/dequeue, single CAS per slot, no retry loops
 
-**Constraints**:
-- BlkRing non-blocking design with atomic slot state
-- C11 atomics only (no mutexes in hot path)
-- All inputs assumed valid (Trust the Caller)
-- Naming per Constitution XI (no redundant prefixes)
-- Header-only library design with single .c for global definitions
-- 1 header file + 1 c file total
-- Default capacity: 1024 per queue
+**Constraints**: No mutexes in hot paths, C11 atomics only, no blocking in task dispatch
 
-**Scale/Scope**:
-- Queue capacity: 100-10000 (configurable, default 1024)
-- 12 ReadyQueues (3 task types × 4 org modes)
-- 1 CompleteQueue
-- 12 user stories covering MPMC + ReadyQueue + CompleteQueue
+**Scale/Scope**: 12 ReadyQueues (3 types × 4 modes), 1 CompleteQueue; capacity 1024 each
 
 ## Constitution Check
 
@@ -61,29 +44,65 @@ A bounded multi-producer-multi-consumer (MPMC) queue using C11 atomics with blkr
 | Testability & Reproducibility | Dependency injection via function pointers; mock scheduler support required; chaos testing encouraged |
 | Header-Only Library | All implementation in headers; `static inline` functions; no binary dependencies |
 | Trust the Caller | All inputs assumed correct; no validation, no exception handling, no edge case testing; undefined behavior on invalid input |
+| Concise Naming | Variable and function names MUST be concise and avoid unnecessary prefixes |
 
-**Rationale**: This is a high-performance async DAG engine in C with Work-Stealing scheduler. Header-only C design ensures maximum inlining and zero linking overhead. BlkRing provides non-blocking guarantee without CAS retry loops.
+**Rationale**: This is a high-performance async DAG engine in C with Work-Stealing scheduler. Header-only C design ensures maximum inlining and zero linking overhead.
 
 ## Project Structure
 
-### Source Code (include/dag/)
+### Documentation (this feature)
+
+```text
+specs/010-mpmc-queue/
+├── plan.md              # This file (/speckit-plan command output)
+├── spec.md              # Feature specification (already exists)
+├── tasks.md             # Task list (already exists, all completed)
+└── contracts/           # Not applicable (internal library, no external APIs)
+```
+
+### Source Code (repository root)
 
 ```text
 include/dag/
-├── mpmc_queue.h     # All queue APIs (MPMC, ReadyQueue matrix, CompleteQueue) - BlkRing non-block
-└── mpmc_queue.c    # Global queue instance definitions only
+├── mpmc_queue.h         # BlkRing queue implementation (EMPTY/FILL/COMPLETE states)
+├── mpmc_queue.c         # Global queue definitions (g_ready_queues[3][4], g_complete_queue)
+├── task.h               # Task types (task_type_t, org_mode_t) - already exists
+└── ring_buf.h           # Ring buffer API - existing, provides task_state_get/set
+
+tests/                   # Unit tests (to be created)
 ```
 
-**BlkRing Non-Block Design**:
-- Each slot has atomic state (EMPTY/FILL/COMPLETE)
-- Enqueue writes to slot and atomically updates state to FILL
-- Dequeue reads slot state and atomically marks COMPLETE then EMPTY
-- No compare-and-swap retry loops - single atomic operation per state transition
-- Producer and consumer indices track slots for O(1) access
+**Structure Decision**: Single-header library with one .c file for global definitions. MPMC queue complements ring_buf.h for task dispatch.
 
-**Default Capacities**:
-- ReadyQueue: 1024 per queue (12 queues = ~12KB total buffer)
-- CompleteQueue: 1024
+## BlkRing Non-Blocking Design
+
+### Slot State Machine
+
+```
+EMPTY (0) → FILL (1) → COMPLETE (2) → EMPTY (0)
+```
+
+Each slot cycles through states:
+1. **EMPTY**: Slot available for producer
+2. **FILL**: Data written, waiting for consumer
+3. **COMPLETE**: Consumer finished, transitioning back to EMPTY
+
+### Core Operations
+
+**blkring_produce()** - Enqueue:
+1. Load producer_idx
+2. Find next EMPTY slot via single CAS
+3. Write data to slot (state already FILL from CAS success)
+4. Advance producer_idx
+
+**blkring_consume()** - Dequeue:
+1. Load consumer_idx
+2. Find next FILL slot via single CAS
+3. Read data from slot
+4. Mark COMPLETE then EMPTY for slot reuse
+5. Advance consumer_idx
+
+**Key property**: No CAS retry loops - each slot operation is a single CAS attempt.
 
 ## Complexity Tracking
 
@@ -91,4 +110,102 @@ include/dag/
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| BlkRing complexity | True non-blocking without CAS retry | Simple atomic head/tail has CAS retry under contention |
+| None | All Constitution principles satisfied | N/A |
+
+## Phase 0: Research Summary
+
+Based on existing implementation in tasks.md:
+
+### Key Decisions
+
+1. **BlkRing over simple CAS retry**: Atomic slot states (EMPTY/FILL/COMPLETE) provide true non-blocking behavior without retry loops
+2. **Global queue matrix**: `g_ready_queues[3][4]` for O(1) 2D indexing by (task_type, org_mode)
+3. **Separate CompleteQueue**: `g_complete_queue` for task completion tracking
+4. **Default capacity 1024**: Sufficient for workload (100-10000 configured at runtime)
+
+### Alternatives Considered
+
+- Simple CAS with retry loop: Rejected because retry loops add unpredictable latency
+- Lock-based queue: Rejected (Constitution VI prohibits locks in hot paths)
+- Single queue with tagging: Rejected (per-type+mode queues enable Work-Stealing)
+
+## Phase 1: Design Artifacts
+
+### Data Model (mpmc_queue.h)
+
+```c
+/* Slot states - atomic, no mutex */
+typedef enum {
+    SLOT_EMPTY    = 0,
+    SLOT_FILL     = 1,
+    SLOT_COMPLETE = 2,
+} slot_state_t;
+
+/* Queue slot - state machine transitions */
+typedef struct {
+    void *data;
+    _Atomic slot_state_t state;
+} blkring_slot_t;
+
+/* MPMC Queue - circular buffer with atomic slot states */
+typedef struct {
+    blkring_slot_t *slots;
+    uint32_t capacity;
+    _Atomic uint32_t producer_idx;  /* Points to next EMPTY slot */
+    _Atomic uint32_t consumer_idx; /* Points to next FILL slot */
+} mpmc_queue_t;
+
+/* Return codes */
+typedef enum {
+    MPMC_OK      = 0,
+    MPMC_FULL    = -1,
+    MPMC_EMPTY   = -2,
+} mpmc_ret_t;
+```
+
+### Global Queues (mpmc_queue.c)
+
+```c
+#define READY_QUEUE_CAPACITY 1024
+#define COMPLETE_QUEUE_CAPACITY 1024
+
+/* 3 task types × 4 org_modes = 12 ready queues */
+extern mpmc_queue_t g_ready_queues[3][4];
+/* Single complete queue */
+extern mpmc_queue_t g_complete_queue;
+
+/* Inline accessors */
+static inline mpmc_queue_t *ready_queue_get(task_type_t type, org_mode_t mode);
+static inline mpmc_ret_t ready_enqueue(task_type_t type, org_mode_t mode, void *item);
+static inline mpmc_ret_t ready_dequeue(task_type_t type, org_mode_t mode, void **item);
+static inline mpmc_ret_t complete_enqueue(void *item);
+static inline mpmc_ret_t complete_dequeue(void **item);
+```
+
+### Batch Operations
+
+```c
+/* Batch enqueue - returns count of items enqueued */
+uint32_t blkring_produce_batch(mpmc_queue_t *q, void **items, uint32_t count);
+
+/* Batch dequeue - returns count of items dequeued */
+uint32_t blkring_consume_batch(mpmc_queue_t *q, void **items, uint32_t count);
+```
+
+### API Summary
+
+| Function | Description | Return |
+|----------|-------------|--------|
+| `mpmc_init(q, capacity)` | Initialize queue with capacity | `void` |
+| `blkring_produce(q, item)` | Enqueue single item | `MPMC_OK`/`MPMC_FULL` |
+| `blkring_consume(q, item)` | Dequeue single item | `MPMC_OK`/`MPMC_EMPTY` |
+| `blkring_produce_batch(q, items, count)` | Enqueue multiple items | count enqueued |
+| `blkring_consume_batch(q, items, count)` | Dequeue multiple items | count dequeued |
+| `ready_enqueue(type, mode, item)` | Enqueue to specific ReadyQueue | `MPMC_OK`/`MPMC_FULL` |
+| `ready_dequeue(type, mode, item)` | Dequeue from specific ReadyQueue | `MPMC_OK`/`MPMC_EMPTY` |
+| `complete_enqueue(item)` | Enqueue to CompleteQueue | `MPMC_OK`/`MPMC_FULL` |
+| `complete_dequeue(item)` | Dequeue from CompleteQueue | `MPMC_OK`/`MPMC_EMPTY` |
+
+## Agent Context Update
+
+See CLAUDE.md section updated via `<!-- SPECKIT START -->` / `<!-- SPECKIT END -->` markers.

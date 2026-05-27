@@ -89,20 +89,7 @@ A system operator reuses the same task descriptor for multiple task submissions.
 
 ---
 
-### User Story 6 - Clear Separation of Task Description and Execution State (Priority: P1)
 
-A system operator relies on the DAG engine to maintain execution state separately from task description. The Orchestrator manages task descriptors (description), while the Dispatch/Executor manage execution state (state transitions, completion).
-
-**Why this priority**: Clear separation allows independent evolution of the task description model and execution state model without coupling changes.
-
-**Independent Test**: Can be tested by verifying that task descriptors do not reference execution state and execution state does not duplicate task description fields.
-
-**Acceptance Scenarios**:
-
-1. **Given** a task descriptor exists, **When** execution completes, **Then** the task descriptor remains unchanged and reusable
-2. **Given** execution state tracks task progress, **When** a task completes, **Then** the execution state is updated but the original descriptor is unchanged
-
----
 
 ### Edge Cases
 
@@ -126,6 +113,11 @@ A system operator relies on the DAG engine to maintain execution state separatel
 - **FR-009**: The Dispatch MUST derive per-instance INDEX values (base INDEX + instance number) during SPMD dispatch
 - **FR-010**: Task dependencies MUST be resolved correctly based on task ID in the descriptor; Dependency Information Ring Buffer MUST store successor count, successor node list, predecessor count; successor storage via base entry (3 inline successors) plus extension entries via 2-byte next pointer
 - **FR-011**: Task runtime information Ring Buffer MUST store input data address, output data address, and kernel address for task execution
+- **FR-012**: Task state definitions (task_state_t, TASK_STATE_EMPTY, TASK_STATE_PENDING, TASK_STATE_RUNNING, TASK_STATE_COMPLETED) MUST be in the task feature's ring_buf.h
+- **FR-013**: ring_min_uncompleted() function MUST be defined in the task feature's ring_buf.h for minimum uncompleted TaskID computation
+- **FR-014**: Task state functions (task_state_get, task_state_set) MUST be defined in the task feature's ring_buf.h
+- **FR-015**: ring_min_uncompleted() MUST return UINT32_MAX when all task slots are EMPTY or COMPLETED
+- **FR-016**: Task state ring buffer MUST use 4096-entry ring buffer with TaskID & RING_MASK indexing
 
 ### Key Entities *(include if feature involves data)*
 
@@ -139,6 +131,9 @@ A system operator relies on the DAG engine to maintain execution state separatel
 - **Dependency Information**: Stored in separate Dependency Information Ring Buffer (not in task descriptor). Contains: successor count, list of successor TaskIDs, predecessor count. Base entry contains 3 inline successor TaskIDs plus 2-byte next pointer to extension entry. Extension entries linked via next pointer, each storing 3 additional successor TaskIDs.
 - **Runtime Information**: Stored in separate Ring Buffer. Contains: input data address, output data address, kernel address. Mutable per-task-instance.
 - **Execution State**: Maintained separately by DAG engine components (Dispatcher, Executor, Cutter), not part of task descriptor. Includes: state, completion status, executor assignment.
+- **Task State Ring Buffer**: 4096-entry atomic ring buffer indexed by TaskID & RING_MASK, storing task_state_t values
+- **Task State Enum**: TASK_STATE_EMPTY=0, TASK_STATE_PENDING=1, TASK_STATE_RUNNING=2, TASK_STATE_COMPLETED=3
+- **Minimum Uncompleted Tracker**: Computes minimum uncompleted TaskID by scanning state ring buffer
 
 ## Success Criteria *(mandatory)*
 
@@ -149,6 +144,10 @@ A system operator relies on the DAG engine to maintain execution state separatel
 - **SC-003**: Task type and organization mode are stored as description fields in the descriptor
 - **SC-004**: Base INDEX is stored in task descriptor; per-instance INDEX is derived during dispatch
 - **SC-005**: Clear boundary between task description (Orchestrator-owned descriptor) and execution state (Dispatcher/Executor-owned)
+- **SC-006**: Task state enum and functions exist in task ring_buf.h only
+- **SC-007**: 007-memory-pool includes task ring_buf.h for task state access
+- **SC-008**: ring_min_uncompleted() correctly returns minimum uncompleted TaskID
+- **SC-009**: No duplicate task state definitions exist in the codebase
 
 ## Assumptions
 
@@ -158,3 +157,7 @@ A system operator relies on the DAG engine to maintain execution state separatel
 - Successor information stored via base entry (3 inline successors) + extension entries (2-byte next pointer); Ring Buffer storage managed by other DAG components
 - Task ID is a 2-byte value used for Ring Buffer indexing via TASKID & RING_SIZE
 - Runtime information includes input data address, output data address, and kernel address
+- Task feature is authoritative source for task state and Task State Ring Buffer
+- Memory pool depends on task feature for task state information
+- Task State Ring Buffer is 4096 entries (RING_SIZE)
+- TaskID indexed via TaskID & RING_MASK

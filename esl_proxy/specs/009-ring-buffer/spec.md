@@ -131,6 +131,39 @@ A system operator inserts a task state into the state Ring Buffer only if the ta
 
 ---
 
+### User Story 9 - Task State Tracking (Priority: P1)
+
+A system operator tracks task execution state via the Task State Ring Buffer. The state enum (EMPTY, PENDING, RUNNING, COMPLETED) is defined in the task feature, and the minimum uncompleted TaskID is computed by scanning the state ring buffer.
+
+**Why this priority**: Task state tracking enables the memory pool's when2free mechanism to know when all tasks with ID less than a threshold have completed.
+
+**Independent Test**: Can be tested by setting task states and verifying ring_min_uncompleted() returns the correct minimum uncompleted TaskID.
+
+**Acceptance Scenarios**:
+
+1. **Given** tasks 1-5 are COMPLETED and tasks 6-10 are PENDING/RUNNING, **When** ring_min_uncompleted() is called, **Then** it returns 6
+2. **Given** all tasks are COMPLETED or EMPTY, **When** ring_min_uncompleted() is called, **Then** it returns UINT32_MAX (sentinel)
+3. **Given** a task ID, **When** task_state_set(task_id, TASK_STATE_RUNNING) is called, **Then** task_state_get(task_id) returns TASK_STATE_RUNNING
+
+
+---
+
+### User Story 10 - Task State Ring Buffer Interface (Priority: P1)
+
+A system operator interacts with the Task State Ring Buffer through functions defined in the task feature. The interface includes task_state_get(task_id), task_state_set(task_id, state), and ring_min_uncompleted().
+
+**Why this priority**: Having a consistent interface to the Task State Ring Buffer allows both task management and memory pool components to use the same functions without duplicating logic.
+
+**Independent Test**: Can be tested by calling task_state_get/set and verifying the ring buffer contains the correct state values.
+
+**Acceptance Scenarios**:
+
+1. **Given** a task ID, **When** task_state_set(task_id, TASK_STATE_RUNNING) is called, **Then** task_state_get(task_id) returns TASK_STATE_RUNNING
+2. **Given** multiple task states are set, **When** ring_min_uncompleted() is called, **Then** it returns the smallest uncompleted TaskID
+
+
+---
+
 ### Edge Cases
 
 - What happens when Ring Buffer is full and new data is written? (Wrapped overwrite behavior)
