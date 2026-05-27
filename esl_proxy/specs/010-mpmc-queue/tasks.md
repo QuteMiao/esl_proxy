@@ -1,4 +1,4 @@
-# Tasks: MPMC Queue (BlkRing Non-Block)
+# Tasks: MPMC Queue (BlkRing Non-Blocking)
 
 **Input**: Design documents from `/specs/010-mpmc-queue/`
 
@@ -12,12 +12,12 @@
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
 
-## Phase 1: Setup (Consolidated 1-Header + 1-C-File Design)
+## Phase 1: Setup (1-Header + 1-C-File Design)
 
 **Purpose**: Create project structure with BlkRing non-blocking queue implementation
 
-- [X] T001 [P] Create include/dag/mpmc_queue.h with BlkRing slot state enum and queue struct
-- [X] T002 [P] Create include/dag/mpmc_queue.c for global queue definitions with default capacities
+- [ ] T001 [P] Create include/dag/mpmc_queue.h with BlkRing slot state enum and queue struct
+- [ ] T002 [P] Create include/dag/mpmc_queue.c for global queue definitions with default capacities
 
 ---
 
@@ -27,19 +27,19 @@
 
 **BlkRing Design**: Atomic slot states (EMPTY/FILL/COMPLETE), no CAS retry loops
 
-- [X] T003 [P] Define slot_state_t enum (EMPTY=0, FILL=1, COMPLETE=2) in mpmc_queue.h
-- [X] T004 [P] Define blkring_slot_t struct with data buffer and atomic state in mpmc_queue.h
-- [X] T005 [P] Define mpmc_queue_t struct with slots array, capacity, producer_idx, consumer_idx in mpmc_queue.h
-- [X] T006 Implement mpmc_init() - allocate slots array, init all states to EMPTY
-- [X] T007 Implement mpmc_idx() - pos % capacity for circular access
-- [X] T008 Implement slot_state_load() - atomic load of slot state
-- [X] T009 Implement slot_state_store() - atomic store of slot state
-- [X] T010 Implement blkring_produce() - enqueue with single atomic state transition (no CAS retry)
-- [X] T011 Implement blkring_consume() - dequeue with single atomic state transition (no CAS retry)
-- [X] T012 [P] Define global mpmc_queue_t g_ready_queues[3][4] in mpmc_queue.c
-- [X] T013 [P] Define global mpmc_queue_t g_complete_queue in mpmc_queue.c
-- [X] T014 Implement ready_queue_get(type, mode) inline accessor
-- [X] T015 Implement complete_enqueue() and complete_dequeue() inline accessors
+- [ ] T003 [P] Define slot_state_t enum (EMPTY=0, FILL=1, COMPLETE=2) in mpmc_queue.h
+- [ ] T004 [P] Define blkring_slot_t struct with data pointer and atomic state in mpmc_queue.h
+- [ ] T005 [P] Define mpmc_queue_t struct with slots array, capacity, producer_idx, consumer_idx in mpmc_queue.h
+- [ ] T006 Implement mpmc_init() - allocate slots array, init all states to EMPTY
+- [ ] T007 Implement mpmc_idx() - pos % capacity for circular access
+- [ ] T008 Implement slot_state_load() - atomic load of slot state
+- [ ] T009 Implement slot_state_store() - atomic store of slot state
+- [ ] T010 Implement blkring_produce() - enqueue with single atomic state transition (no CAS retry)
+- [ ] T011 Implement blkring_consume() - dequeue with single atomic state transition (no CAS retry)
+- [ ] T012 [P] Define global mpmc_queue_t g_ready_queues[3][4] in mpmc_queue.c
+- [ ] T013 [P] Define global mpmc_queue_t g_complete_queue in mpmc_queue.c
+- [ ] T014 Implement ready_queue_get(type, mode) inline accessor in mpmc_queue.h
+- [ ] T015 Implement complete_enqueue() and complete_dequeue() inline accessors in mpmc_queue.h
 
 **Checkpoint**: BlkRing infrastructure ready - true non-blocking without CAS retry
 
@@ -51,8 +51,8 @@
 
 **Independent Test**: Verify multiple producers/consumers can enqueue/dequeue concurrently without loss
 
-- [X] T016 [US1] blkring_produce() writes item to slot and transitions state EMPTY→FILL
-- [X] T017 [US1] blkring_consume() reads item from slot and transitions state FILL→COMPLETE→EMPTY
+- [ ] T016 [US1] blkring_produce() writes item to slot and transitions state EMPTY→FILL
+- [ ] T017 [US1] blkring_consume() reads item from slot and transitions state FILL→COMPLETE→EMPTY
 
 ---
 
@@ -62,8 +62,8 @@
 
 **Independent Test**: Verify enqueue returns MPMC_FULL when queue is at capacity
 
-- [X] T018 [US2] blkring_produce() returns MPMC_FULL when no EMPTY slots available
-- [X] T019 [US2] blkring_consume() creates EMPTY slot after COMPLETE→EMPTY transition
+- [ ] T018 [US2] blkring_produce() returns MPMC_FULL when no EMPTY slots available
+- [ ] T019 [US2] blkring_consume() creates EMPTY slot after COMPLETE→EMPTY transition
 
 ---
 
@@ -73,7 +73,7 @@
 
 **Independent Test**: Verify items dequeue in same order as enqueued
 
-- [X] T020 [US3] Sequential enqueue/dequeue maintains FIFO order via producer/consumer indices
+- [ ] T020 [US3] Sequential enqueue/dequeue maintains FIFO order via producer/consumer indices
 
 ---
 
@@ -83,7 +83,7 @@
 
 **Independent Test**: Verify dequeue returns immediately with empty status when queue is empty
 
-- [X] T021 [US4] blkring_consume() returns MPMC_EMPTY immediately when no FILL slots available
+- [ ] T021 [US4] blkring_consume() returns MPMC_EMPTY immediately when no FILL slots available
 
 ---
 
@@ -93,7 +93,7 @@
 
 **Independent Test**: Verify buffer wraparound and memory reuse
 
-- [X] T022 [US5] mpmc_idx() correctly wraps index using pos % capacity
+- [ ] T022 [US5] mpmc_idx() correctly wraps index using pos % capacity
 
 ---
 
@@ -103,9 +103,9 @@
 
 **Independent Test**: Verify batch of 10 items can be enqueued in single call
 
-- [X] T023 [US6] blkring_produce_batch() loops through items with single atomic per slot
-- [X] T024 [US6] blkring_produce_batch() returns actual count enqueued
-- [X] T025 [US6] Partial batch when count exceeds available EMPTY slots
+- [ ] T023 [US6] blkring_produce_batch() loops through items with single atomic per slot
+- [ ] T024 [US6] blkring_produce_batch() returns actual count enqueued
+- [ ] T025 [US6] Partial batch when count exceeds available EMPTY slots
 
 ---
 
@@ -115,9 +115,9 @@
 
 **Independent Test**: Verify batch of 10 items can be dequeued in single call
 
-- [X] T026 [US7] blkring_consume_batch() loops through items with single atomic per slot
-- [X] T027 [US7] blkring_consume_batch() returns actual count dequeued
-- [X] T028 [US7] Partial batch when fewer items than requested available
+- [ ] T026 [US7] blkring_consume_batch() loops through items with single atomic per slot
+- [ ] T027 [US7] blkring_consume_batch() returns actual count dequeued
+- [ ] T028 [US7] Partial batch when fewer items than requested available
 
 ---
 
@@ -127,8 +127,8 @@
 
 **Independent Test**: Verify batch API returns accurate count when fewer items than requested
 
-- [X] T029 [US8] blkring_produce_batch() handles partial batch correctly
-- [X] T030 [US8] blkring_consume_batch() handles partial batch correctly
+- [ ] T029 [US8] blkring_produce_batch() handles partial batch correctly
+- [ ] T030 [US8] blkring_consume_batch() handles partial batch correctly
 
 ---
 
@@ -138,9 +138,9 @@
 
 **Independent Test**: Verify tasks routed to correct queue based on type and org_mode
 
-- [X] T031 [US9] ready_enqueue(type, mode, item) inline function implemented
-- [X] T032 [US9] ready_dequeue(type, mode, item) inline function implemented
-- [X] T033 [US9] 12 queue combinations (3 types × 4 modes) accessible
+- [ ] T031 [US9] ready_enqueue(type, mode, item) inline function implemented
+- [ ] T032 [US9] ready_dequeue(type, mode, item) inline function implemented
+- [ ] T033 [US9] 12 queue combinations (3 types × 4 modes) accessible
 
 ---
 
@@ -150,8 +150,8 @@
 
 **Independent Test**: Verify ready_queue_get() returns correct queue in O(1)
 
-- [X] T034 [US10] ready_queue_get(type, mode) returning queue pointer
-- [X] T035 [US10] O(1) access via direct array indexing
+- [ ] T034 [US10] ready_queue_get(type, mode) returning queue pointer
+- [ ] T035 [US10] O(1) access via direct array indexing
 
 ---
 
@@ -161,9 +161,9 @@
 
 **Independent Test**: Verify completion notifications can be enqueued and dequeued
 
-- [X] T036 [US11] complete_enqueue() inline function implemented
-- [X] T037 [US11] complete_dequeue() inline function implemented
-- [X] T038 [US11] Completion notifications recorded in CompleteQueue
+- [ ] T036 [US11] complete_enqueue() inline function implemented
+- [ ] T037 [US11] complete_dequeue() inline function implemented
+- [ ] T038 [US11] Completion notifications recorded in CompleteQueue
 
 ---
 
@@ -173,8 +173,8 @@
 
 **Independent Test**: Verify g_complete_queue is globally accessible
 
-- [X] T039 [US12] g_complete_queue global variable exists
-- [X] T040 [US12] Workers can enqueue without queue references
+- [ ] T039 [US12] g_complete_queue global variable exists
+- [ ] T040 [US12] Workers can enqueue without queue references
 
 ---
 
@@ -182,9 +182,9 @@
 
 **Purpose**: Verification and cleanup
 
-- [X] T041 [P] All queue implementations compile with clang -std=c11
-- [X] T042 [P] C11 atomics usage (_Atomic, atomic_load/store, no CAS)
-- [X] T043 Verify BlkRing true non-blocking - no compare-and-swap retry loops
+- [ ] T041 [P] All queue implementations compile with clang -std=c11
+- [ ] T042 [P] C11 atomics usage (_Atomic, atomic_load/store, no CAS)
+- [ ] T043 Verify BlkRing true non-blocking - no compare-and-swap retry loops
 
 ---
 
@@ -192,14 +192,24 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: Completed
-- **Foundational (Phase 2)**: Completed - BlkRing core blocks all user stories
-- **User Stories (Phase 3-14)**: All completed
-- **Polish (Phase 15)**: Completed
+- **Setup (Phase 1)**: No dependencies - can start immediately
+- **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
+- **User Stories (Phase 3-14)**: All depend on Foundational phase completion
+- **Polish (Phase 15)**: Depends on all user stories being complete
 
 ### Summary
 
-All 43 tasks completed with BlkRing non-blocking design using atomic slot states (EMPTY/FILL/COMPLETE).
+- **Total tasks**: 43
+- **Setup**: 2 tasks (T001-T002)
+- **Foundational**: 14 tasks (T003-T015)
+- **User Stories**: 25 tasks (T016-T040)
+- **Polish**: 3 tasks (T041-T043)
+
+### Parallel Opportunities
+
+- **Phase 1 Setup**: T001 and T002 can run in parallel (different files)
+- **Phase 2 Foundational**: T003, T004, T005, T012, T013 can run in parallel (different files, no dependencies)
+- **All user stories**: Can run in parallel after foundational completes
 
 ---
 
@@ -226,8 +236,8 @@ All 43 tasks completed with BlkRing non-blocking design using atomic slot states
 include/dag/
 ├── mpmc_queue.h     # BlkRing APIs (slot state, produce, consume, batch)
 ├── mpmc_queue.c     # Global defs (READY_QUEUE_CAPACITY=1024, COMPLETE_QUEUE_CAPACITY=1024)
-├── task.h           # Task types (task_type_t, org_mode_t)
-├── ring_buf.h/c     # Ring buffer (separate feature)
+├── task.h           # Task types (task_type_t, org_mode_t) - existing
+└── ring_buf.h/c     # Ring buffer (separate feature)
 ```
 
 ---
