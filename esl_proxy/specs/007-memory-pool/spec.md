@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "memory预分配内存，支持task执行期间中间数据内存的分配和释放  + memory对orchestrator提供内存分配和注册释放时机的接口 + memory对orchestrator提供when2free(addr, taskID)接口，在所有小于taskID的任务已经执行完时自动释放对应的内存  + 根据task state Ring buffer中的TaskID状态更新最小未完成TaskID + 采用单生产者单消费者的模式"
+**Input**: User description: "memory预分配内存，支持task执行期间中间数据内存的分配和释放  + memory对orchestrator提供内存分配和注册释放时机的接口 + memory对orchestrator提供when2free(addr, taskID)接口，在所有小于taskID的任务已经执行完时自动释放对应的内存  + 根据task state Ring buffer中的TaskID状态更新最小未完成TaskID + 采用单生产者单消费者的模式 + 内存池以FIFO的方式管理 + 利用spsc队列首尾指针的更新实现内存的分配和释放"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -27,20 +27,20 @@ A system operator configures a pre-allocated memory pool before task execution b
 
 ---
 
-### User Story 2 - In-Task Allocation and Deallocation (Priority: P1)
+### User Story 2 - Orchestrator-Managed Allocation and when2free Registration (Priority: P1)
 
-A system operator relies on tasks to allocate intermediate data buffers during execution and release them when no longer needed. The memory pool manages the lifecycle of these temporary allocations, ensuring memory is reclaimed immediately after use.
+A system operator relies on the Orchestrator to allocate memory buffers via the memory pool interface and register them with when2free for automatic release timing. The Orchestrator manages all memory allocation and release timing decisions, while tasks simply use the pre-allocated buffers.
 
-**Why this priority**: Supporting allocation/deallocation within task execution enables complex multi-stage tasks to use temporary buffers without leaking memory or requiring long-lived allocations.
+**Why this priority**: Centralizing allocation and when2free registration in the Orchestrator simplifies task execution and ensures memory is freed at the correct time based on DAG dependency analysis.
 
-**Independent Test**: Can be tested by running a task that allocates, uses, and frees intermediate data multiple times within a single execution, and verifying pool utilization remains stable.
+**Independent Test**: Can be tested by having the Orchestrator allocate buffers and register them with when2free, then verifying buffers are freed automatically when the minimum uncompleted TaskID crosses the threshold.
 
 **Acceptance Scenarios**:
 
-1. **Given** a task is executing, **When** it allocates a buffer of size N bytes, **Then** the buffer is returned immediately from the available pool
-2. **Given** a task allocates multiple intermediate buffers, **When** it finishes with each buffer, **Then** each buffer is individually freed back to the pool
-3. **Given** a task allocates a large buffer that exceeds pool remaining capacity, **When** the allocation is attempted, **Then** the system handles the overflow gracefully
-4. **Given** multiple tasks execute concurrently using the same pool, **When** they allocate and free independently, **Then** pool allocations remain thread-safe with no corruption
+1. **Given** the Orchestrator calls alloc() for a buffer, **When** the allocation is requested, **Then** the buffer is returned from the available pool immediately
+2. **Given** the Orchestrator allocates a buffer and calls when2free(addr, taskID=T), **When** all tasks with ID less than T complete, **Then** the buffer is automatically freed
+3. **Given** the Orchestrator allocates multiple buffers and registers them with different when2free thresholds, **When** each threshold condition is met, **Then** each buffer is freed exactly once in threshold order
+4. **Given** the Orchestrator allocates a buffer that exceeds pool remaining capacity, **When** the allocation is attempted, **Then** the system handles the overflow gracefully
 
 ---
 
@@ -206,6 +206,8 @@ A system operator relies on a dedicated Manager thread to monitor the minimum un
 - **FR-016**: The system MUST query the Task State Ring Buffer to determine task completion status for minimum uncompleted TaskID computation
 - **FR-017**: The system MUST treat tasks in "running" state as uncompleted when computing minimum uncompleted TaskID
 - **FR-018**: A dedicated Manager thread MUST continuously monitor the Task State Ring Buffer, update the minimum uncompleted TaskID, and automatically free when2free-registered buffers whose threshold has been reached
+- **FR-019**: The memory pool MUST use FIFO-based allocation where freed slots are returned to the queue for reuse
+- **FR-020**: The memory pool MUST use SPSC queue head/tail pointer updates for allocation and release, leveraging memory contiguity for O(1) operation without complex data structures
 
 ### Key Entities *(include if feature involves data)*
 
@@ -243,3 +245,5 @@ A system operator relies on a dedicated Manager thread to monitor the minimum un
 - CompleteQueue is NOT used for minimum uncompleted TaskID updates - it serves other purposes (e.g., signaling task completion to other components)
 - The memory pool operates in Single Producer Single Consumer (SPSC) mode, where a single designated producer (Orchestrator) allocates memory and a single designated consumer (Worker/Executor) frees memory
 - A dedicated Manager thread handles when2free-based automatic memory release by monitoring minimum uncompleted TaskID
+- The memory pool uses FIFO-based allocation where freed slots are returned to the queue for reuse
+- Allocation and release use SPSC queue head/tail pointer updates, leveraging memory contiguity for O(1) operation

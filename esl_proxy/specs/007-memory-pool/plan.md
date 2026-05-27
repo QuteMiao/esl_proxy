@@ -1,12 +1,12 @@
 # Implementation Plan: Memory Pool
 
-**Branch**: `007-memory-pool` | **Date**: 2026-05-26 | **Spec**: [spec.md](./spec.md)
+**Branch**: `007-memory-pool` | **Date**: 2026-05-27 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `specs/007-memory-pool/spec.md`
 
 ## Summary
 
-A pre-allocated memory pool for DAG task execution supporting: SPSC allocation/deallocation, when2free automatic release based on minimum uncompleted TaskID tracked via Task State Ring Buffer, and a dedicated Manager thread for threshold-based memory reclamation.
+A pre-allocated memory pool for DAG task execution supporting: SPSC allocation/deallocation via ring buffer head/tail pointer updates, when2free automatic release based on minimum uncompleted TaskID tracked via Task State Ring Buffer, and a dedicated Manager thread for threshold-based memory reclamation.
 
 ## Technical Context
 
@@ -24,7 +24,7 @@ A pre-allocated memory pool for DAG task execution supporting: SPSC allocation/d
 
 **Performance Goals**: Allocation/deallocation < 1μs, when2free release < 1μs after threshold
 
-**Constraints**: SPSC mode only (single producer Orchestrator, single consumer Worker), no blocking in Manager thread hot path
+**Constraints**: SPSC mode only (single producer Orchestrator, single consumer Worker), ring buffer head/tail pointer for O(1) alloc/free
 
 **Scale/Scope**: Pool sizes 1MB-1GB, thousands of concurrent allocations
 
@@ -38,14 +38,14 @@ A pre-allocated memory pool for DAG task execution supporting: SPSC allocation/d
 | Callback-Based Async Architecture | Manager thread uses async polling pattern; when2free callbacks for allocation/release; no blocking |
 | DAG-Based Task Scheduling | N/A - memory pool component, not DAG scheduler |
 | Zero-Copy Task Data Flow | Buffer descriptors (pointer+size) for zero-copy sharing |
-| Lock-Free Concurrency | SPSC mode with C11 atomics; atomic CAS for slot state; no mutexes |
+| Lock-Free Concurrency | SPSC mode with C11 atomics; ring buffer head/tail pointers are atomic; no mutexes |
 | No Blocking in Hot Paths | Manager thread polls without blocking; atomic operations only |
 | Deterministic Scheduling | N/A - memory pool component |
 | Testability & Reproducibility | Unit tests for alloc/free/error paths; microbenchmarks |
 | Header-Only Library | All implementation in headers with `static inline` |
 | Trust the Caller | Caller provides valid addresses and TaskIDs; no validation at pool layer |
 
-**Rationale**: Memory pool is a header-only C11 component using SPSC atomics. Manager thread runs independently with async polling. SPSC constraint simplifies lock-free design.
+**Rationale**: Memory pool is a header-only C11 component using ring buffer head/tail pointers for SPSC. Manager thread runs independently with async polling. Ring buffer design provides O(1) allocation without complex data structures.
 
 ## Project Structure
 
@@ -69,11 +69,37 @@ include/dag/
 ├── mem_pool.c           # Global pool definitions
 ├── ring_buf.h           # Ring buffer (Task State Ring Buffer)
 └── ring_buf.c           # Ring buffer global defs
-
-src/                    # (if needed for tests)
 ```
 
-**Structure Decision**: Header-only library under `include/dag/`. Single `mem_pool.h` with `static inline` implementations. Separate `ring_buf.h/c` for Task State Ring Buffer (existing component). Manager thread logic embedded in pool module.
+**Structure Decision**: Header-only library under `include/dag/`. Single `mem_pool.h` with `static inline` implementations. Ring buffer head/tail pointer approach for SPSC slot management.
+
+## Ring Buffer Head/Tail Pointer Design
+
+### Allocation (Producer - Orchestrator)
+- Uses ring buffer tail pointer to allocate
+- `tail++` with wraparound at capacity
+- O(1) operation: single atomic increment
+
+### Release (Consumer - Manager/Worker)
+- Uses ring buffer head pointer to free
+- `head++` with wraparound at capacity
+- O(1) operation: single atomic increment
+
+### Why Ring Buffer Head/Tail?
+1. **Memory Contiguity**: Pre-allocated slots in continuous memory block
+2. **O(1) Allocation**: No search needed - just increment tail pointer
+3. **O(1) Release**: No merge needed - just increment head pointer
+4. **SPSC Natural Fit**: Single producer (tail), single consumer (head)
+5. **No Fragmentation**: FIFO reuse prevents fragmentation
+
+### Slot State Machine (SPSC Ring Buffer)
+
+```
+[FREE] --[tail++]--> [ALLOCATED]
+[ALLOCATED] --[head++]--> [FREE]
+```
+
+Head and tail pointers wrap around at capacity using modulo operation.
 
 ## Complexity Tracking
 
@@ -82,4 +108,5 @@ src/                    # (if needed for tests)
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | Manager thread polling | Decouples when2free release from task execution | Synchronous release would block task execution paths |
-| SPSC-only mode | Simplifies lock-free design to single-producer single-consumer | MPMC would require CAS retry loops |
+| SPSC-only mode | Simplifies lock-free design to ring buffer head/tail | MPMC would require CAS retry loops |
+| Ring buffer head/tail | O(1) alloc/free without complex free-list | Linked-list or bitmap would add overhead |

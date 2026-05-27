@@ -1,7 +1,7 @@
 # Quickstart: Memory Pool Integration
 
 **Feature**: `specs/007-memory-pool/spec.md`
-**Created**: 2026-05-26
+**Created**: 2026-05-27
 
 ## Basic Usage
 
@@ -12,7 +12,6 @@
 mem_pool_config_t config = {
     .pool_size = 64 * 1024 * 1024,  // 64MB
     .slot_size = 4096,               // 4KB slots
-    .enable_monitoring = true
 };
 mem_pool_init(&config);
 ```
@@ -20,21 +19,24 @@ mem_pool_init(&config);
 ### 2. Orchestrator Allocates Buffer (Producer)
 
 ```c
-// Orchestrator allocates buffer for task input
-void *buffer = mem_pool_alloc(1024);
-if (!buffer) {
+// Orchestrator allocates buffer via ring buffer tail
+size_t slot_index = mem_pool_alloc(1024);
+if (slot_index == INVALID_SLOT) {
     // Handle pool exhaustion
 }
 
 // Register for automatic release
-mem_pool_when2free(buffer, target_task_id);
+mem_pool_when2free(slot_index, target_task_id);
 ```
 
 ### 3. Worker Uses Buffer (Consumer)
 
 ```c
-// Worker uses buffer, then frees it
-mem_pool_free(buffer);
+// Worker uses buffer
+void *buffer = mem_pool_addr(slot_index);
+
+// After task completion, Manager thread frees via ring buffer head
+mem_pool_free(slot_index);
 ```
 
 ### 4. Manager Thread (when2free Release)
@@ -48,55 +50,71 @@ while (running) {
 }
 ```
 
+## Ring Buffer Head/Tail Flow
+
+```
+Producer (Orchestrator)          Consumer (Manager/Worker)
+      |                                  |
+      v                                  v
+   tail = 0                           head = 0
+      |                                  |
+      |-- alloc --> slot[0] -- free --> |
+      |                                  |
+   tail = 1                           head = 1
+      |                                  |
+      |-- alloc --> slot[1] -- free --> |
+      |                                  |
+   tail = 2                           head = 2
+```
+
 ## Test Scenarios
 
-### Scenario 1: Basic Alloc/Free
+### Scenario 1: Basic Alloc/Free via Ring Buffer
 
 ```
 1. Init pool (1MB, 256 slots of 4KB)
-2. Alloc 100 bytes → succeeds
-3. Free 100 bytes → slot returned to pool
-4. Verify pool.allocated decreased correctly
+2. tail = 0, head = 0
+3. alloc() → returns slot 0, tail = 1
+4. free(slot 0) → head = 1
+5. Verify ring buffer state: head=1, tail=1 (balanced)
 ```
 
-### Scenario 2: when2free Automatic Release
+### Scenario 2: Ring Buffer Wraparound
+
+```
+1. Pool with 4 slots
+2. alloc × 4 → tail: 0→1→2→3→4 (wrap to 0)
+3. Verify tail % 4 == 0
+4. free × 4 → head: 0→1→2→3→4 (wrap to 0)
+5. Verify head % 4 == 0
+```
+
+### Scenario 3: when2free Automatic Release
 
 ```
 1. Init pool
-2. Alloc buffer B1
-3. Register when2free(B1, task_id=5)
-4. Task 3 completes → min_uncompleted = 4
-5. Task 4 completes → min_uncompleted = 5 (B1 NOT freed, 5 is threshold)
-6. Task 5 completes → min_uncompleted = 6 → B1 freed automatically
+2. alloc() → slot 0, register when2free(slot=0, task_id=5)
+3. Task 3 completes → min_uncompleted = 4
+4. Task 4 completes → min_uncompleted = 5 (slot NOT freed, 5 is threshold)
+5. Task 5 completes → min_uncompleted = 6 → slot freed via head++
 ```
 
-### Scenario 3: SPSC Mode Enforcement
+### Scenario 4: SPSC Mode Enforcement
 
 ```
 1. Init pool in SPSC mode
-2. Orchestrator (producer) allocates → succeeds
-3. Worker (consumer) frees → succeeds
-4. Worker attempts to allocate → rejected or ignored (wrong role)
-5. Orchestrator attempts to free → rejected or ignored (wrong role)
+2. Producer (Orchestrator) calls alloc() → tail++ → slot allocated
+3. Consumer (Worker/Manager) calls free() → head++ → slot freed
+4. Verify: only producer modifies tail, only consumer modifies head
 ```
 
-### Scenario 4: Pool Exhaustion
+### Scenario 5: Pool Exhaustion
 
 ```
 1. Init pool (1KB total, 2 slots of 500 bytes)
-2. Alloc 500 bytes → slot 1 allocated
-3. Alloc 500 bytes → slot 2 allocated
-4. Alloc 500 bytes → fails gracefully (pool full)
-5. Free slot 1 → slot returned to pool
-6. Alloc 500 bytes → succeeds
-```
-
-### Scenario 5: Minimum Uncompleted Tracking
-
-```
-1. Task State Ring Buffer: [1=PENDING, 2=RUNNING, 3=COMPLETED, 4=PENDING, 5=COMPLETED]
-2. Query min_uncompleted → returns 1 (first PENDING)
-3. Task 1 completes → ring buffer updates
-4. Query min_uncompleted → returns 2 (still RUNNING, not complete)
-5. Task 2 completes → returns 4 (first PENDING/RUNNING after 2)
+2. tail = 0: alloc → slot 0, tail = 1
+3. tail = 1: alloc → slot 1, tail = 2
+4. tail = 2 % 2 = 0 == head? Pool full
+5. free(slot 0) → head = 1
+6. alloc → slot 1, tail = 0
 ```
