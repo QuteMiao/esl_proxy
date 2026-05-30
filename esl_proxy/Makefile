@@ -1,14 +1,14 @@
 # esl_proxy build
 #
 # Usage:
-#   make          # compile
+#   make          # compile (orchestration: cases/qwen3_decode.h, all-SPMD)
 #   make run      # compile and run
 #   make run WORKER_LOG=1   # run with worker logs
 #   make clean    # remove build artifacts
 
 CC       := cc
 CFLAGS   := -std=c11 -Wall -Wextra -pedantic -O3 -I include -I cases
-LDFLAGS  := -lpthread
+LDFLAGS  := -lpthread -latomic
 
 OBJ_DIR := build/obj
 BIN_DIR := bin

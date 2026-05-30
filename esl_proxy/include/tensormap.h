@@ -434,6 +434,115 @@ static inline int32_t tm_valid_count(const TmTensorMap *self) {
     return n;
 }
 
+/* ===========================================================================
+ * High-level tensormap dependency layer: tm_deps_init / tm_in / tm_out /
+ * tm_inout / tm_submit  (merged from the former cases/tensormap_deps.h).
+ *
+ * Layered on the producer-lookup map above + esl_proxy's ring_buf.h
+ * (add_input/add_output/add_inout/succeed/submit). It is compiled ONLY when
+ * ring_buf.h is already in scope (its include guard DAG_RING_BUF_H is defined),
+ * so the low-level map stays standalone for callers that don't use ring_buf
+ * (e.g. tests/test_tensormap.c). A case file enables it simply by including
+ * ring_buf.h before tensormap.h.
+ *
+ * Granularity is whole-buffer: a proxy Tensor is a bare uint64_t address, so two
+ * regions alias iff they share that address. Every tm_in resolves to ALL live
+ * producers of that address and wires an edge via succeed(); this is the
+ * documented conservative (over-synchronizing) data-flow behavior.
+ * ========================================================================== */
+#ifdef DAG_RING_BUF_H
+
+#ifndef TMD_POOL_SIZE
+#define TMD_POOL_SIZE 8192u      /* >= total tm_out/tm_inout registrations */
+#endif
+#ifndef TMD_NUM_BUCKETS
+#define TMD_NUM_BUCKETS 2048u    /* power of two */
+#endif
+#ifndef TMD_TASK_WINDOW
+#define TMD_TASK_WINDOW 65536u   /* power of two; covers every uint16 task id */
+#endif
+
+/* Compile-time upper bound on the bytes tm_init needs for the config below. */
+#define TMD_BUF_BYTES                                                          \
+    (sizeof(TmHeader) + 6u * TM_REGION_ALIGN +                                 \
+     (uint64_t)TMD_NUM_BUCKETS * sizeof(int32_t) +                             \
+     (uint64_t)TMD_POOL_SIZE * sizeof(TmEntry) +                               \
+     (uint64_t)TMD_POOL_SIZE * sizeof(int32_t) +                               \
+     (uint64_t)TMD_TASK_WINDOW * sizeof(int32_t))
+
+static TmTensorMap g_tm_map;
+static _Alignas(TM_REGION_ALIGN) uint8_t g_tm_buf[TMD_BUF_BYTES];
+
+/* Whole-buffer probe/producer region for a bare address. ndims==0 forces the
+ * overlap cascade to treat any same-base region as overlapping (L2 -> OTHER). */
+static inline TmRegion tmd_region(uint64_t addr) {
+    TmRegion r;
+    memset(&r, 0, sizeof r);
+    r.base_addr = addr;
+    r.start_offset = 0;
+    r.extent_elem = 1;
+    r.storage_numel = 1;
+    r.elem_size = 1;
+    r.ndims = 0;
+    r.version = 0;
+    r.is_contiguous = 1;
+    return r;
+}
+
+static inline bool tmd_on_match(TmEntry *e, TmOverlap st, void *ctx) {
+    (void)st;
+    const uint16_t consumer = *(const uint16_t *)ctx;
+    const uint16_t producer = (uint16_t)tm_local_of(e->producer_id);
+    if (producer != consumer) {   /* no self-edge for the inout (RAW-on-self) case */
+        succeed(consumer, producer);
+    }
+    return true;  /* visit every live producer */
+}
+
+/* One-time setup; call at the top of the orchestration entry. */
+static inline void tm_deps_init(void) {
+    TmConfig cfg;
+    cfg.num_buckets = TMD_NUM_BUCKETS;
+    cfg.pool_size = TMD_POOL_SIZE;
+    cfg.num_rings = 1;
+    cfg.task_window[0] = TMD_TASK_WINDOW;
+    for (uint32_t r = 1; r < TM_MAX_RINGS; r++) cfg.task_window[r] = 1;
+    assert(tm_bytes_required(&cfg) <= sizeof g_tm_buf);
+    tm_init(&g_tm_map, g_tm_buf, &cfg);
+}
+
+/* INPUT: record on the task and add an edge from every live producer. */
+static inline void tm_in(uint16_t tid, Tensor t) {
+    add_input(tid, t);
+    TmRegion r = tmd_region((uint64_t)t);
+    tm_lookup(&g_tm_map, &r, tmd_on_match, &tid);
+}
+
+/* OUTPUT: record on the task and register tid as a producer of this address. */
+static inline void tm_out(uint16_t tid, Tensor t) {
+    add_output(tid, t);
+    TmRegion r = tmd_region((uint64_t)t);
+    tm_insert(&g_tm_map, &r, tm_make_id(0, tid));
+}
+
+/* INOUT: resolve prior producers (read-before-write), then become a producer. */
+static inline void tm_inout(uint16_t tid, Tensor t) {
+    add_inout(tid, t);
+    TmRegion r = tmd_region((uint64_t)t);
+    tm_lookup(&g_tm_map, &r, tmd_on_match, &tid);
+    tm_insert(&g_tm_map, &r, tm_make_id(0, tid));
+}
+
+/* Close the task. Advancing the validity watermark to g_min_uncomplete_task
+ * reclaims producers of retired tasks (correctness-first; a no-op during a pure
+ * build phase where nothing has completed yet). */
+static inline void tm_submit(uint16_t tid) {
+    submit(tid);
+    tm_sync_tensormap(&g_tm_map, 0, (int32_t)g_min_uncomplete_task);
+}
+
+#endif  /* DAG_RING_BUF_H */
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif

@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -60,9 +62,28 @@ int main(void) {
     aicpu_orchestration_entry(0);
     uint64_t end_ns = get_time_ns();
     uint64_t elapsed_ns = end_ns - start_ns;
+
+    /* Subtask count: an SPMD task expands into block_num (count) subtasks; every
+     * non-SPMD task is a single subtask. Computed after orchestration so it does
+     * not count toward elapsed_time. */
+    uint64_t subtask_cnt = 0;
+    for (uint32_t i = 1; i <= g_task_id; i++) {
+        const struct task_desc *t = &g_basic_buf[i & RING_MASK];
+        if (t->mode == ORG_MODE_SPMD_SYNC || t->mode == ORG_MODE_SPMD_ASYNC)
+            subtask_cnt += t->count;
+        else
+            subtask_cnt += 1;
+    }
+
     fprintf(stderr, "[orchestration] task_cnt=%d\n", g_task_id);
-    fprintf(stderr, "[orchestration] elapsed_time=%llu ns\n", elapsed_ns);
-    fprintf(stderr, "[orchestration] time_240_task=%llu ns\n", elapsed_ns / g_task_id * 240);
+    fprintf(stderr, "[orchestration] subtask_cnt=%llu\n",
+            (unsigned long long)subtask_cnt);
+    fprintf(stderr, "[orchestration] elapsed_time=%llu ns\n",
+            (unsigned long long)elapsed_ns);
+    fprintf(stderr, "[orchestration] time_240_task=%llu ns\n",
+            (unsigned long long)(elapsed_ns / g_task_id * 240));
+    fprintf(stderr, "[orchestration] time_240_subtask=%llu ns\n",
+            (unsigned long long)(elapsed_ns / subtask_cnt * 240));
 #else
     aicpu_orchestration_entry(0);
 #endif
