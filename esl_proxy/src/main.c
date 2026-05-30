@@ -101,13 +101,12 @@ int main(void) {
             sizeof g_mem_pool_storage / (1024UL * 1024UL));
 
 #ifdef ESL_PROXY_TENSORMAP_H
-    /* tensormap entry-pool usage after orchestration. pool_high_water = max
+    /* tensormap block-map usage after orchestration. pool_high_water = max
      * entries ever live at once (free-list reuse does not advance it); a value
      * well below the total tm_out/tm_inout count means the submit-time
-     * tm_sync_tensormap() reclamation fired during the build. */
-    fprintf(stderr, "[tensormap] pool_high_water=%d valid_now=%d freed=%d (pool_size=%u, %zuB/entry)\n",
-            tm_hdr(&g_tm_map)->next_entry_idx, tm_valid_count(&g_tm_map),
-            tm_hdr(&g_tm_map)->free_num, tm_hdr(&g_tm_map)->cfg.pool_size, sizeof(TmEntry));
+     * reclamation fired during the build. */
+    fprintf(stderr, "[tensormap] pool_high_water=%d freed=%d (pool_size=%u, %zuB/entry)\n",
+            g_tmb_next_idx, g_tmb_free_num, (unsigned)TMD_POOL_SIZE, sizeof(TmbEntry));
 #endif
     return 0;
 }

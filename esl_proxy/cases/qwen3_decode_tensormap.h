@@ -120,9 +120,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
-        tm_in(g_task_id, ext_hidden_states);
+        tm_in_ro(g_task_id, ext_hidden_states);
         tm_out(g_task_id, normed_tile);
-        tm_in(g_task_id, ext_input_rms_weight);
+        tm_in_ro(g_task_id, ext_input_rms_weight);
         add_scalar(g_task_id, b0);
         add_scalar(g_task_id, cur_valid);
         add_duration(g_task_id, 23950);
@@ -137,7 +137,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 20);
         tm_in(g_task_id, normed_tile);
-        tm_in(g_task_id, ext_wq);
+        tm_in_ro(g_task_id, ext_wq);
         tm_out_view(g_task_id, q_proj, tix, 1);  // this tile writes block `tix` of q_proj
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 26060);
@@ -152,7 +152,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 8);
         tm_in(g_task_id, normed_tile);
-        tm_in(g_task_id, ext_wk);
+        tm_in_ro(g_task_id, ext_wk);
         tm_out_view(g_task_id, k_proj, tix, 1);  // this tile writes block `tix` of k_proj
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 18170);
@@ -167,7 +167,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 8);
         tm_in(g_task_id, normed_tile);
-        tm_in(g_task_id, ext_wv);
+        tm_in_ro(g_task_id, ext_wv);
         tm_out_view(g_task_id, v_proj, tix, 1);  // this tile writes block `tix` of v_proj
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 17890);
@@ -183,9 +183,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         tm_out_view(g_task_id, k_proj_norm, tix, 1);
         tm_out_view(g_task_id, q_proj_norm, tix, 1);
         tm_in_view(g_task_id, q_proj, tix, 1);  // reads only this tile's q_proj block
-        tm_in(g_task_id, ext_q_norm_weight);
+        tm_in_ro(g_task_id, ext_q_norm_weight);
         tm_in_view(g_task_id, k_proj, tix, 1);  // reads only this tile's k_proj block
-        tm_in(g_task_id, ext_k_norm_weight);
+        tm_in_ro(g_task_id, ext_k_norm_weight);
         add_scalar(g_task_id, 0);  // q0
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 13190);
@@ -231,10 +231,10 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         tm_out_view(g_task_id, ext_k_cache, b, 1);   // writes this batch's KV-cache slot
         tm_out_view(g_task_id, ext_v_cache, b, 1);
         tm_in_view(g_task_id, k_proj_norm, tix, 1);  // reads this batch's tile block
-        tm_in(g_task_id, ext_rope_cos);  // cos_lo view -> base tensor
-        tm_in(g_task_id, ext_rope_sin);  // sin_lo view -> base tensor
-        tm_in(g_task_id, ext_rope_cos);  // cos_hi view -> base tensor
-        tm_in(g_task_id, ext_rope_sin);  // sin_hi view -> base tensor
+        tm_in_ro(g_task_id, ext_rope_cos);  // cos_lo view -> base tensor
+        tm_in_ro(g_task_id, ext_rope_sin);  // sin_lo view -> base tensor
+        tm_in_ro(g_task_id, ext_rope_cos);  // cos_hi view -> base tensor
+        tm_in_ro(g_task_id, ext_rope_sin);  // sin_hi view -> base tensor
         tm_in_view(g_task_id, v_proj, tix, 1);
         tm_in_view(g_task_id, q_proj_norm, tix, 1);
         add_scalar(g_task_id, slot_block);
@@ -253,7 +253,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_block_num(g_task_id, 4);
         tm_in_view(g_task_id, all_q_padded, b, 1);
         tm_out(g_task_id, all_raw_scores);
-        tm_in(g_task_id, ext_block_table);
+        tm_in_ro(g_task_id, ext_block_table);
         tm_in_view(g_task_id, ext_k_cache, b, 1);
         add_scalar(g_task_id, b);
         add_scalar(g_task_id, ctx_blocks);
@@ -287,7 +287,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 4);
         tm_out(g_task_id, all_oi_tmp);
-        tm_in(g_task_id, ext_block_table);
+        tm_in_ro(g_task_id, ext_block_table);
         tm_in(g_task_id, all_exp_padded);
         tm_in_view(g_task_id, ext_v_cache, b, 1);
         add_scalar(g_task_id, ctx_blocks);
@@ -340,11 +340,11 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         }
         set_task_type(g_task_id, TASK_TYPE_MIX);
         set_block_num(g_task_id, 40);
-        tm_in(g_task_id, ext_hidden_states);
+        tm_in_ro(g_task_id, ext_hidden_states);
         // reads only the attn_out rows of this tile's batches -> depends on the
         // <= cur_valid online_softmax tasks for [b0, b0+cur_valid), not all 90.
         tm_in_view(g_task_id, attn_out, b0, cur_valid);
-        tm_in(g_task_id, ext_wo);
+        tm_in_ro(g_task_id, ext_wo);
         tm_inout(g_task_id, resid1_tile);
         tm_out(g_task_id, gm_pipe_buffer_0);
         add_scalar(g_task_id, b0);
@@ -361,7 +361,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
         tm_in(g_task_id, resid1_tile);
         tm_out(g_task_id, post_norm_tile);
-        tm_in(g_task_id, ext_post_rms_weight);
+        tm_in_ro(g_task_id, ext_post_rms_weight);
         add_duration(g_task_id, 24390);
         tm_submit(g_task_id);
 
@@ -374,7 +374,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 34);
         tm_in(g_task_id, post_norm_tile);
-        tm_in(g_task_id, ext_w_gate);
+        tm_in_ro(g_task_id, ext_w_gate);
         tm_inout(g_task_id, gate_tile);
         add_duration(g_task_id, 95700);
         tm_submit(g_task_id);
@@ -388,7 +388,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 34);
         tm_in(g_task_id, post_norm_tile);
-        tm_in(g_task_id, ext_w_up);
+        tm_in_ro(g_task_id, ext_w_up);
         tm_inout(g_task_id, up_tile);
         add_duration(g_task_id, 97140);
         tm_submit(g_task_id);
@@ -417,7 +417,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 40);
         tm_in(g_task_id, mlp_tile);
-        tm_in(g_task_id, ext_w_down);
+        tm_in_ro(g_task_id, ext_w_down);
         tm_inout(g_task_id, down_tile);
         add_duration(g_task_id, 72220);
         tm_submit(g_task_id);
