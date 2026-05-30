@@ -12,7 +12,9 @@
 CASE     ?= qwen3_decode.h
 
 CC       := cc
-CFLAGS   := -std=c11 -Wall -Wextra -pedantic -O3 -I include -I cases -DORCH_CASE='"$(CASE)"'
+# -MMD -MP emits a .d alongside each .o listing the headers it included, so a
+# change to any include/*.h (e.g. tensormap.h) rebuilds the dependent objects.
+CFLAGS   := -std=c11 -Wall -Wextra -pedantic -O3 -I include -I cases -DORCH_CASE='"$(CASE)"' -MMD -MP
 LDFLAGS  := -lpthread -latomic
 
 OBJ_DIR := build/obj
@@ -28,6 +30,7 @@ SRCS := \
 	src/shm.c
 
 OBJS := $(SRCS:src/%.c=$(OBJ_DIR)/%.o)
+DEPS := $(OBJS:.o=.d)
 
 CASE_STAMP := $(OBJ_DIR)/.case-stamp
 
@@ -54,3 +57,5 @@ run: all
 
 clean:
 	rm -rf build $(BIN_DIR)
+
+-include $(DEPS)
