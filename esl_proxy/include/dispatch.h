@@ -18,10 +18,11 @@
 #include "executor.h"
 #include "task.h"
 
-#define THREAD_CNT 2
+
 #define TASK_TYPE_CNT 3
-#define AIC_OSTD 2
 #define EXE_TYPE_CNT 2
+
+#define AIC_OSTD 2
 #define AIC_CNT 60
 
 typedef struct queue {
@@ -40,6 +41,7 @@ static inline bool batch_dequeue(queue_t* queue, uint16_t* item, uint16_t n) {
     return true;
 }
 
+// TODO: RING LOOP
 static inline bool batch_enqueue(queue_t* queue, uint16_t* item, uint16_t n) {
     if ((RING_SIZE - queue->cnt) < n) return false;
     memcpy(item, queue->tasks[queue->tail], n*sizeof(uint16_t));

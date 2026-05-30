@@ -12,18 +12,17 @@
 #define DAG_EXECUTOR_H
 
 #include <stdint.h>
-#include <stdatomic.h>
 #include <stddef.h>
-
+#include "conf.h"
 
 /*
- * Executor type
+ * Executor
  * Contains 2 slots for task caching with PING PONG selection
  */
 typedef struct executor {
-    uint16_t tasks[2];            /* Slot occupancy (0=empty, 1=occupied) */
-    uint16_t index[2];
-    uint64_t base[2];
+    uint16_t tasks[AIC_OSTD];
+    uint16_t index[AIC_OSTD];
+    uint64_t base[AIC_OSTD];
 } executor_t;
 
 #endif /* DAG_EXECUTOR_H */

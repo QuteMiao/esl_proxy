@@ -12,34 +12,25 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include "conf.h"
 #include "task.h"
 #include "mpmc_queue.h"
 
-#define RING_SIZE 4096
-#define HALF_RING_SIZE 2048
-#define RING_MASK (RING_SIZE - 1)
+#define Tensor uint64_t
 
 typedef enum {
-    RING_CAT_STATE  = 0,
-    RING_CAT_BASIC  = 1,
-    RING_CAT_DEP    = 2,
-    RING_CAT_RUNTIME = 3,
-} ring_cat_t;
+    BFLOAT16 = 2,
+    FLOAT32  = 4,
+} dtype_t;
 
-#define Tensor uint64_t
-#define BFLOAT16 2
-#define FLOAT32 4
-#define NODECNT 3
-
-uint16_t g_task_id = 0;
-uint16_t g_min_uncomplete_task = 0;
-task_state g_state_buf[RING_SIZE];
-
-atomic_flag g_lock_buf[RING_SIZE] = { [0 ... RING_SIZE-1] = ATOMIC_FLAG_INIT };
-struct task_desc g_basic_buf[RING_SIZE];
-atomic_char16_t g_predecessor_buf[RING_SIZE];
-struct successorList g_successor_buf[RING_SIZE];
-struct successorList g_successor_exp_buf[HALF_RING_SIZE];
+extern uint16_t g_task_id;
+extern uint16_t g_min_uncomplete_task;
+extern task_state g_state_buf[RING_SIZE];
+extern atomic_flag g_lock_buf[RING_SIZE];
+extern struct task_desc g_basic_buf[RING_SIZE];
+extern atomic_char16_t g_predecessor_buf[RING_SIZE];
+extern struct successorList g_successor_buf[RING_SIZE];
+extern struct successorList g_successor_exp_buf[HALF_RING_SIZE];
 
 extern mpmc_queue_t g_ready_queues[3][4];
 
@@ -93,8 +84,8 @@ static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t targ
         struct successorList* ptr = &g_successor_buf[slotIdx];
         for (int i = 0; i < cnt; i++)
         {
-            while(idx > NODECNT) {
-                idx = idx - NODECNT;
+            while(idx > SUCC_NODE_CNT) {
+                idx = idx - SUCC_NODE_CNT;
                 ptr = ptr->next;
             }
             ptr->successor[idx] = task_id[i];
@@ -143,8 +134,8 @@ static inline bool succeed(uint16_t task_id, uint16_t target) {
     if (atomic_compare_exchange_strong(&g_state_buf[slotIdx], &expected, desired)) {
         int idx = desired.successor_cnt;
         struct successorList* ptr = &g_successor_buf[slotIdx];
-        while(idx > NODECNT) {
-            idx = idx - NODECNT;
+        while(idx > SUCC_NODE_CNT) {
+            idx = idx - SUCC_NODE_CNT;
             ptr = ptr->next;
         }
         ptr->successor[idx] = task_id;

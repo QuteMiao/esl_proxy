@@ -10,10 +10,7 @@
 
 #include <stdint.h>
 #include <stdatomic.h>
-
-/* Ring Buffer constants for TaskID indexing */
-#define RING_SIZE 4096
-#define RING_MASK (RING_SIZE - 1)
+#include "conf.h"
 
 typedef uint16_t task_id_t;
 
@@ -33,12 +30,15 @@ typedef enum {
     ORG_MODE_SPMD_ASYNC = 3,
 } org_mode_t;
 
-#define EMPTY  0
-#define PENDING  1
-#define COMPLETED 2
+typedef enum {
+    TASK_STATUS_EMPTY = 0,
+    TASK_STATUS_CREATING,
+    TASK_STATUS_SUBMITTED,
+    TASK_STATUS_COMPLETED,
+} task_status_t;
 
 typedef struct {
-    uint16_t state;
+    task_status_t status;
     uint16_t task_id;
     uint32_t successor_cnt;
 } task_state;
