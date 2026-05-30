@@ -75,6 +75,7 @@ static inline void set_completed(int tid) {
     {  
         g_state_buf[task_id[i] & RING_MASK].state = COMPLETED;
     }
+    batch_enqueue(&g_ctrl_t[tid].completed_queue, &task_id, complete_cnt);
     atomic_fetch_add_explicit(&g_completed_cnt, complete_cnt, memory_order_acquire);
 }
 
@@ -128,6 +129,5 @@ void *dispatch_worker(void *arg) {
     while (1) {
         dispatch(tid);
     }
-
     return NULL;
 }
