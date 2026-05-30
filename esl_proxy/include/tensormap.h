@@ -473,20 +473,39 @@ static inline int32_t tm_valid_count(const TmTensorMap *self) {
 static TmTensorMap g_tm_map;
 static _Alignas(TM_REGION_ALIGN) uint8_t g_tm_buf[TMD_BUF_BYTES];
 
-/* Whole-buffer probe/producer region for a bare address. ndims==0 forces the
- * overlap cascade to treat any same-base region as overlapping (L2 -> OTHER). */
-static inline TmRegion tmd_region(uint64_t addr) {
+/* Block-granular views (manual scoping).
+ *
+ * A tensor is conceptually cut into blocks; a task marks which block range
+ * [blk, blk+nblk) of a tensor it reads/writes via tm_*_view(). Dependencies
+ * are then judged PER BLOCK: two regions on the same base address depend iff
+ * their block ranges intersect. The whole-tensor tm_in/out/inout helpers cover
+ * every block (extent == TMD_WHOLE_EXTENT), so they keep the conservative
+ * "alias the entire buffer" behavior and interoperate with block views.
+ *
+ * Mechanism: we reuse tm_overlap()'s L1 byte-range test by mapping
+ *   start_offset := blk,  extent_elem := nblk
+ * and keeping ndims == 0 (so the L2 hyper-rectangle stage is skipped and a
+ * range intersection yields TM_OVERLAP_OTHER == "depends"). No stride math. */
+#define TMD_WHOLE_EXTENT ((uint64_t)1u << 32)  /* spans any block index */
+
+static inline TmRegion tmd_region_view(uint64_t addr, uint64_t blk, uint64_t nblk) {
     TmRegion r;
     memset(&r, 0, sizeof r);
     r.base_addr = addr;
-    r.start_offset = 0;
-    r.extent_elem = 1;
+    r.start_offset = blk;
+    r.extent_elem = nblk;
     r.storage_numel = 1;
     r.elem_size = 1;
-    r.ndims = 0;
+    r.ndims = 0;       /* L1-range-only: any intersection -> OTHER (depends) */
     r.version = 0;
     r.is_contiguous = 1;
     return r;
+}
+
+/* Whole-buffer probe/producer region for a bare address: block range
+ * [0, TMD_WHOLE_EXTENT) overlaps every block of the same base address. */
+static inline TmRegion tmd_region(uint64_t addr) {
+    return tmd_region_view(addr, 0, TMD_WHOLE_EXTENT);
 }
 
 static inline bool tmd_on_match(TmEntry *e, TmOverlap st, void *ctx) {
@@ -529,6 +548,34 @@ static inline void tm_out(uint16_t tid, Tensor t) {
 static inline void tm_inout(uint16_t tid, Tensor t) {
     add_inout(tid, t);
     TmRegion r = tmd_region((uint64_t)t);
+    tm_lookup(&g_tm_map, &r, tmd_on_match, &tid);
+    tm_insert(&g_tm_map, &r, tm_make_id(0, tid));
+}
+
+/* ---- block-view variants -------------------------------------------------
+ * Same as tm_in/out/inout, but scoped to block range [blk, blk+nblk) of the
+ * tensor. Use these to break whole-buffer over-synchronization: a consumer
+ * that only touches some blocks of a shared buffer depends solely on the
+ * producers of the OVERLAPPING blocks, not every writer of the buffer. */
+
+/* INPUT view: edge from every live producer whose block range overlaps. */
+static inline void tm_in_view(uint16_t tid, Tensor t, uint64_t blk, uint64_t nblk) {
+    add_input(tid, t);
+    TmRegion r = tmd_region_view((uint64_t)t, blk, nblk);
+    tm_lookup(&g_tm_map, &r, tmd_on_match, &tid);
+}
+
+/* OUTPUT view: register tid as the producer of this block range. */
+static inline void tm_out_view(uint16_t tid, Tensor t, uint64_t blk, uint64_t nblk) {
+    add_output(tid, t);
+    TmRegion r = tmd_region_view((uint64_t)t, blk, nblk);
+    tm_insert(&g_tm_map, &r, tm_make_id(0, tid));
+}
+
+/* INOUT view: resolve overlapping prior producers, then become a producer. */
+static inline void tm_inout_view(uint16_t tid, Tensor t, uint64_t blk, uint64_t nblk) {
+    add_inout(tid, t);
+    TmRegion r = tmd_region_view((uint64_t)t, blk, nblk);
     tm_lookup(&g_tm_map, &r, tmd_on_match, &tid);
     tm_insert(&g_tm_map, &r, tm_make_id(0, tid));
 }

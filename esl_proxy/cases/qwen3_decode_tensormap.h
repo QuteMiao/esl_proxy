@@ -21,12 +21,24 @@
 // Durations are the V200-benchmark per-subtask means (Readme.md, 2026/5/30 AICore
 // View caliber) in ns: each SPMD block runs for the per-kernel mean.
 //
-// Granularity is whole-buffer (Tensor is a bare uint64_t address), so the resulting
-// graph is data-flow-derived and differs from the hand-wired version:
-//   * qk_norm depends on q_proj/k_proj (its real inputs) only, not v_proj.
-//   * out_proj reads attn_out whole -> depends on every online_softmax that wrote
-//     attn_out (one per batch under the single-launch SPMD form: 90 producers,
-//     vs. 360 in the old four-launch decomposition).
+// Dependencies are block-granular (manual scoping). A shared cross-iteration
+// buffer is conceptually cut into blocks and each task marks the block range it
+// touches via tm_*_view(tid, t, blk, nblk); tensormap then wires an edge only
+// between producer/consumer whose block ranges overlap (include/tensormap.h,
+// tm_overlap L1 range test). Buffers that are private to one loop iteration
+// (normed_tile, all_raw_scores, gate_tile, ...) keep the whole-buffer tm_in/out
+// helpers, since their addresses are already unique per iteration.
+//
+// Block keys used here:
+//   * q_proj / k_proj / v_proj / q_proj_norm / k_proj_norm : block = tile index b0/16.
+//   * all_q_padded / ext_k_cache / ext_v_cache             : block = batch index b.
+//   * attn_out                                             : block = batch index b.
+//
+// Resulting graph (matches the hand-wired cases/qwen3_decode.h locality):
+//   * qk_norm depends on its tile's q_proj/k_proj only (not v_proj, not other tiles).
+//   * out_proj reads attn_out rows [b0, b0+cur_valid) -> depends on only the
+//     <= cur_valid online_softmax tasks of its tile, NOT all 90 batches. This is
+//     the over-synchronization that whole-buffer granularity used to introduce.
 #include <stddef.h>
 #include <stdint.h>
 
@@ -96,6 +108,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
     Tensor k_proj_norm = alloc_tensors(k_proj_norm_ci_shapes, 2, FLOAT32);
 
     for (int64_t b0 = 0; b0 < batch_padded; b0 += 16) {
+        const int64_t tix = b0 / 16;  // tile (block) index for the shared q/k/v_proj buffers
         uint32_t normed_tile_ci_shapes[2] = {16, 5120};
         Tensor normed_tile = alloc_tensors(normed_tile_ci_shapes, 2, BFLOAT16);
         const int64_t cur_valid = (user_batch - b0 > 16) ? 16 : (user_batch - b0);
@@ -125,7 +138,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_block_num(g_task_id, 20);
         tm_in(g_task_id, normed_tile);
         tm_in(g_task_id, ext_wq);
-        tm_out(g_task_id, q_proj);
+        tm_out_view(g_task_id, q_proj, tix, 1);  // this tile writes block `tix` of q_proj
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 26060);
         tm_submit(g_task_id);
@@ -140,7 +153,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_block_num(g_task_id, 8);
         tm_in(g_task_id, normed_tile);
         tm_in(g_task_id, ext_wk);
-        tm_out(g_task_id, k_proj);
+        tm_out_view(g_task_id, k_proj, tix, 1);  // this tile writes block `tix` of k_proj
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 18170);
         tm_submit(g_task_id);
@@ -155,7 +168,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_block_num(g_task_id, 8);
         tm_in(g_task_id, normed_tile);
         tm_in(g_task_id, ext_wv);
-        tm_out(g_task_id, v_proj);
+        tm_out_view(g_task_id, v_proj, tix, 1);  // this tile writes block `tix` of v_proj
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 17890);
         tm_submit(g_task_id);
@@ -167,11 +180,11 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
-        tm_out(g_task_id, k_proj_norm);
-        tm_out(g_task_id, q_proj_norm);
-        tm_in(g_task_id, q_proj);
+        tm_out_view(g_task_id, k_proj_norm, tix, 1);
+        tm_out_view(g_task_id, q_proj_norm, tix, 1);
+        tm_in_view(g_task_id, q_proj, tix, 1);  // reads only this tile's q_proj block
         tm_in(g_task_id, ext_q_norm_weight);
-        tm_in(g_task_id, k_proj);
+        tm_in_view(g_task_id, k_proj, tix, 1);  // reads only this tile's k_proj block
         tm_in(g_task_id, ext_k_norm_weight);
         add_scalar(g_task_id, 0);  // q0
         add_scalar(g_task_id, b0);
@@ -197,6 +210,8 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         uint32_t all_oi_tmp_ci_shapes[2] = {4096, 128};
         Tensor all_oi_tmp = alloc_tensors(all_oi_tmp_ci_shapes, 2, FLOAT32);
 
+        const int64_t tix = b / 16;  // tile (block) index for the shared q/k/v_proj_norm buffers
+
         // Fixed placeholders for control values (proxy has no tensor data to read).
         const int64_t ctx_len = 1024;
         const int64_t ctx_blocks = ((ctx_len + 127) / 128);
@@ -212,16 +227,16 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
-        tm_out(g_task_id, all_q_padded);
-        tm_out(g_task_id, ext_k_cache);
-        tm_out(g_task_id, ext_v_cache);
-        tm_in(g_task_id, k_proj_norm);
+        tm_out_view(g_task_id, all_q_padded, b, 1);  // writes this batch's q rows (block b)
+        tm_out_view(g_task_id, ext_k_cache, b, 1);   // writes this batch's KV-cache slot
+        tm_out_view(g_task_id, ext_v_cache, b, 1);
+        tm_in_view(g_task_id, k_proj_norm, tix, 1);  // reads this batch's tile block
         tm_in(g_task_id, ext_rope_cos);  // cos_lo view -> base tensor
         tm_in(g_task_id, ext_rope_sin);  // sin_lo view -> base tensor
         tm_in(g_task_id, ext_rope_cos);  // cos_hi view -> base tensor
         tm_in(g_task_id, ext_rope_sin);  // sin_hi view -> base tensor
-        tm_in(g_task_id, v_proj);
-        tm_in(g_task_id, q_proj_norm);
+        tm_in_view(g_task_id, v_proj, tix, 1);
+        tm_in_view(g_task_id, q_proj_norm, tix, 1);
         add_scalar(g_task_id, slot_block);
         add_scalar(g_task_id, slot_offset);
         add_scalar(g_task_id, b);
@@ -236,10 +251,10 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         }
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 4);
-        tm_in(g_task_id, all_q_padded);
+        tm_in_view(g_task_id, all_q_padded, b, 1);
         tm_out(g_task_id, all_raw_scores);
         tm_in(g_task_id, ext_block_table);
-        tm_in(g_task_id, ext_k_cache);
+        tm_in_view(g_task_id, ext_k_cache, b, 1);
         add_scalar(g_task_id, b);
         add_scalar(g_task_id, ctx_blocks);
         add_scalar(g_task_id, block_table_base);
@@ -274,7 +289,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         tm_out(g_task_id, all_oi_tmp);
         tm_in(g_task_id, ext_block_table);
         tm_in(g_task_id, all_exp_padded);
-        tm_in(g_task_id, ext_v_cache);
+        tm_in_view(g_task_id, ext_v_cache, b, 1);
         add_scalar(g_task_id, ctx_blocks);
         add_scalar(g_task_id, block_table_base);
         add_duration(g_task_id, 31650);
@@ -292,7 +307,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         tm_in(g_task_id, all_oi_tmp);
         tm_in(g_task_id, all_cur_mi);
         tm_in(g_task_id, all_cur_li);
-        tm_inout(g_task_id, attn_out);  // attn_row view -> base tensor
+        tm_inout_view(g_task_id, attn_out, b, 1);  // writes only this batch's row block
         add_scalar(g_task_id, ctx_blocks);
         add_duration(g_task_id, 20820);
         tm_submit(g_task_id);
@@ -326,7 +341,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_task_type(g_task_id, TASK_TYPE_MIX);
         set_block_num(g_task_id, 40);
         tm_in(g_task_id, ext_hidden_states);
-        tm_in(g_task_id, attn_out);
+        // reads only the attn_out rows of this tile's batches -> depends on the
+        // <= cur_valid online_softmax tasks for [b0, b0+cur_valid), not all 90.
+        tm_in_view(g_task_id, attn_out, b0, cur_valid);
         tm_in(g_task_id, ext_wo);
         tm_inout(g_task_id, resid1_tile);
         tm_out(g_task_id, gm_pipe_buffer_0);
