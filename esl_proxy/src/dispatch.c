@@ -62,9 +62,6 @@ static inline void get_completed(uint64_t free_bitmap, uint16_t task_id[], int c
 
 // TODO: add counter for spmd
 static inline void set_completed(int tid) {
-    uint64_t free_bitmap;
-    int cnt;
-    uint64_t idx;
     uint16_t task_id[240];
     uint16_t complete_cnt = 0;
     for (int i = 0; i < EXE_TYPE_CNT; i++)
@@ -73,6 +70,10 @@ static inline void set_completed(int tid) {
             &complete_cnt, g_ctrl_t[tid].task_id_map1[i]);
         get_completed(g_ctrl_t[tid].msg_bitmap[i][1], task_id, 
             &complete_cnt, g_ctrl_t[tid].task_id_map1[i]);
+    }
+    for (uint16_t i = 0; i < complete_cnt; i++)
+    {  
+        g_state_buf[task_id[i] & RING_MASK].state = COMPLETED;
     }
     atomic_fetch_add_explicit(&g_completed_cnt, complete_cnt, memory_order_acquire);
 }
@@ -110,6 +111,7 @@ static inline void send_task(ctrl_t* ctrl, int type) {
 
 static inline void dispatch(int tid) {
     update_exe_state(tid);
+    set_completed(tid);
     send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
     send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
     send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);
