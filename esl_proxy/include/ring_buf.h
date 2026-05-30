@@ -12,9 +12,10 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+
 #include "conf.h"
-#include "task.h"
 #include "mpmc_queue.h"
+#include "task.h"
 
 #define Tensor uint64_t
 
@@ -25,50 +26,73 @@ typedef enum {
 
 extern uint16_t g_task_id;
 extern uint16_t g_min_uncomplete_task;
-extern task_state g_state_buf[RING_SIZE];
+extern _Atomic task_state g_state_buf[RING_SIZE];
 extern atomic_flag g_lock_buf[RING_SIZE];
 extern struct task_desc g_basic_buf[RING_SIZE];
-extern atomic_char16_t g_predecessor_buf[RING_SIZE];
+extern _Atomic uint16_t g_predecessor_buf[RING_SIZE];
 extern struct succ_list g_successor_buf[RING_SIZE];
 extern struct succ_list g_successor_exp_buf[HALF_RING_SIZE];
 
+static inline void ring_buf_init(void)
+{
+    for (size_t i = 0; i < RING_SIZE; i++) {
+        g_successor_buf[i].next = &g_successor_exp_buf[i % HALF_RING_SIZE];
+    }
+    for (size_t i = 0; i < HALF_RING_SIZE; i++) {
+        g_successor_exp_buf[i].next = NULL;
+    }
+}
 
-static inline void add_input(uint16_t task_id, Tensor t) {
+static inline void spin_wait(void)
+{
+    atomic_thread_fence(memory_order_seq_cst);
+}
+
+static inline void add_input(uint16_t task_id, Tensor t)
+{
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
     g_basic_buf[task_id & RING_MASK].data[idx] = t;
 }
 
-static inline void add_output(uint16_t task_id, Tensor t) {
+static inline void add_output(uint16_t task_id, Tensor t)
+{
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
     g_basic_buf[task_id & RING_MASK].data[idx] = t;
 }
 
-static inline void add_inout(uint16_t task_id, Tensor t) {
+static inline void add_inout(uint16_t task_id, Tensor t)
+{
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
     g_basic_buf[task_id & RING_MASK].data[idx] = t;
 }
 
-static inline void add_scalar(uint16_t task_id, int64_t t) {
+static inline void add_scalar(uint16_t task_id, int64_t t)
+{
     int idx = g_basic_buf[task_id & RING_MASK].scalar_cnt++;
     g_basic_buf[task_id & RING_MASK].scalar[idx] = t;
 }
 
-static inline void add_duration(uint16_t task_id, int64_t t) {
-    g_basic_buf[task_id & RING_MASK].duration = t;
+static inline void add_duration(uint16_t task_id, int64_t t)
+{
+    g_basic_buf[task_id & RING_MASK].duration = (uint16_t)t;
 }
 
-static lock(int slotIdx) {
+static inline void lock(int slotIdx)
+{
     while (atomic_flag_test_and_set_explicit(&g_lock_buf[slotIdx], memory_order_acquire)) {
-        wait();
+        spin_wait();
     }
 }
 
-static inline unlock(int slotIdx) {
+static inline void unlock(int slotIdx)
+{
     atomic_flag_clear_explicit(&g_lock_buf[slotIdx], memory_order_release);
 }
 
-static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t target) {
-    if (target < g_min_uncomplete_task) return false;
+static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t target)
+{
+    if (target < g_min_uncomplete_task)
+        return false;
     int slotIdx = target & RING_MASK;
 
     task_state expected = atomic_load_explicit(&g_state_buf[slotIdx], memory_order_relaxed);
@@ -79,17 +103,16 @@ static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t targ
     desired.task_id = expected.task_id;
     desired.successor_cnt = expected.successor_cnt + cnt;
     if (atomic_compare_exchange_strong(&g_state_buf[slotIdx], &expected, desired)) {
-        int idx = expected.successor_cnt + 1;
-        struct succ_list* ptr = &g_successor_buf[slotIdx];
-        for (int i = 0; i < cnt; i++)
-        {
-            while(idx > SUCC_NODE_CNT) {
-                idx = idx - SUCC_NODE_CNT;
+        int idx = (int)expected.successor_cnt;
+        struct succ_list *ptr = &g_successor_buf[slotIdx];
+        for (int i = 0; i < cnt; i++) {
+            while (idx >= SUCC_NODE_CNT) {
+                idx -= SUCC_NODE_CNT;
                 ptr = ptr->next;
             }
             ptr->successor[idx] = task_id[i];
-            // TODO: 初始化为1， 避免提前释放
-            atomic_fetch_add_explicit(&g_predecessor_buf[task_id[i] & RING_MASK], 1, memory_order_relaxed);
+            atomic_fetch_add_explicit(&g_predecessor_buf[task_id[i] & RING_MASK], 1,
+                                      memory_order_relaxed);
             idx++;
         }
         return true;
@@ -97,30 +120,34 @@ static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t targ
     return false;
 }
 
-static inline void batch_submit(uint16_t cnt, uint16_t task_id[]) {
+static inline void batch_submit(uint16_t cnt, uint16_t task_id[])
+{
     uint16_t tmp[512];
-    for (int i = 0; i < cnt; i++)
-    {
-        tmp[i] = atomic_fetch_add_explicit(&g_predecessor_buf[task_id[i] & RING_MASK], 
-            -1, memory_order_relaxed);
+    for (int i = 0; i < cnt; i++) {
+        tmp[i] = (uint16_t)atomic_fetch_sub_explicit(
+            &g_predecessor_buf[task_id[i] & RING_MASK], 1, memory_order_relaxed);
     }
 
-    for (int i = 0; i < cnt; i++)
-    {
-        if( tmp[i] == 1) ready_enqueue(g_basic_buf[task_id[i] & RING_MASK].type, 
-            g_basic_buf[task_id[i] & RING_MASK].mode, task_id);
+    for (int i = 0; i < cnt; i++) {
+        if (tmp[i] == 1)
+            ready_enqueue(g_basic_buf[task_id[i] & RING_MASK].type,
+                          g_basic_buf[task_id[i] & RING_MASK].mode, task_id[i]);
     }
 }
 
-static inline void submit(uint16_t task_id) {
-    uint16_t tmp = atomic_fetch_add_explicit(&g_predecessor_buf[task_id & RING_MASK], 
-        -1, memory_order_relaxed);
-    if( tmp == 1) ready_enqueue(g_basic_buf[task_id & RING_MASK].type, 
-        g_basic_buf[task_id & RING_MASK].mode, task_id);
+static inline void submit(uint16_t task_id)
+{
+    uint16_t tmp = (uint16_t)atomic_fetch_sub_explicit(
+        &g_predecessor_buf[task_id & RING_MASK], 1, memory_order_relaxed);
+    if (tmp == 1)
+        ready_enqueue(g_basic_buf[task_id & RING_MASK].type,
+                      g_basic_buf[task_id & RING_MASK].mode, task_id);
 }
 
-static inline bool succeed(uint16_t task_id, uint16_t target) {
-    if (target < g_min_uncomplete_task) return false;
+static inline bool succeed(uint16_t task_id, uint16_t target)
+{
+    if (target < g_min_uncomplete_task)
+        return false;
     int slotIdx = target & RING_MASK;
 
     task_state expected = atomic_load_explicit(&g_state_buf[slotIdx], memory_order_relaxed);
@@ -131,20 +158,22 @@ static inline bool succeed(uint16_t task_id, uint16_t target) {
     desired.task_id = expected.task_id;
     desired.successor_cnt = expected.successor_cnt + 1;
     if (atomic_compare_exchange_strong(&g_state_buf[slotIdx], &expected, desired)) {
-        int idx = desired.successor_cnt;
-        struct succ_list* ptr = &g_successor_buf[slotIdx];
-        while(idx > SUCC_NODE_CNT) {
-            idx = idx - SUCC_NODE_CNT;
+        int idx = (int)expected.successor_cnt;
+        struct succ_list *ptr = &g_successor_buf[slotIdx];
+        while (idx >= SUCC_NODE_CNT) {
+            idx -= SUCC_NODE_CNT;
             ptr = ptr->next;
         }
         ptr->successor[idx] = task_id;
-        atomic_fetch_add_explicit(&g_predecessor_buf[task_id & RING_MASK], 1, memory_order_relaxed);
+        atomic_fetch_add_explicit(&g_predecessor_buf[task_id & RING_MASK], 1,
+                                  memory_order_relaxed);
         return true;
     }
     return false;
 }
 
-static inline bool try_new_task(uint32_t task_id) {
+static inline bool try_new_task(uint32_t task_id)
+{
     task_state expected;
     expected.state = EMPTY;
     expected.successor_cnt = 0;
@@ -153,15 +182,15 @@ static inline bool try_new_task(uint32_t task_id) {
     task_state desired;
     desired.state = PENDING;
     desired.successor_cnt = 0;
-    desired.task_id = task_id;
+    desired.task_id = (uint16_t)task_id;
     return atomic_compare_exchange_strong_explicit(
-        &g_state_buf[task_id & RING_MASK], &expected, desired, memory_order_acquire, memory_order_acquire);
+        &g_state_buf[task_id & RING_MASK], &expected, desired, memory_order_acquire,
+        memory_order_acquire);
 }
 
-/*
- * Set task state in ring buffer
- */
-static inline bool set_task_completed(uint32_t task_id, u_int32_t state) {
+static inline bool set_task_completed(uint32_t task_id, uint32_t state)
+{
+    (void)state;
     int slotIdx = task_id & RING_MASK;
     task_state expected = atomic_load_explicit(&g_state_buf[slotIdx], memory_order_relaxed);
     task_state desired;
@@ -171,13 +200,10 @@ static inline bool set_task_completed(uint32_t task_id, u_int32_t state) {
     return atomic_compare_exchange_strong(&g_state_buf[slotIdx], &expected, desired);
 }
 
-/*
- * Compute minimum uncompleted task ID from ring buffer
- * Returns: minimum ID with state != COMPLETED, or UINT32_MAX if all completed
- */
-static inline void update_min_uncompleted() {
-    u_int32_t i = g_min_uncomplete_task & RING_SIZE;
-    for (; i < g_task_id & RING_SIZE; i++) {
+static inline void update_min_uncompleted(void)
+{
+    uint32_t i = g_min_uncomplete_task & RING_MASK;
+    for (; i < (g_task_id & RING_MASK); i++) {
         task_state result = atomic_load_explicit(&g_state_buf[i], memory_order_acquire);
         if (result.state == COMPLETED) {
             g_min_uncomplete_task = result.task_id;
@@ -185,6 +211,12 @@ static inline void update_min_uncompleted() {
             break;
         }
     }
+}
+
+static inline uint32_t ring_min_uncompleted(void)
+{
+    update_min_uncompleted();
+    return g_min_uncomplete_task;
 }
 
 #endif /* DAG_RING_BUF_H */

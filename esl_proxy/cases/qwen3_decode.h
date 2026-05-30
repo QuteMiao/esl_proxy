@@ -102,7 +102,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         uint16_t rmsnorm_id = g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_input(g_task_id, ext_hidden_states);
         add_output(g_task_id, normed_tile);
@@ -119,7 +119,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, normed_tile);
             add_input(g_task_id, ext_wq);
@@ -137,7 +137,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, normed_tile);
             add_input(g_task_id, ext_wk);
@@ -156,7 +156,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, normed_tile);
             add_input(g_task_id, ext_wv);
@@ -175,7 +175,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_output(g_task_id, k_proj_norm);
         add_output(g_task_id, q_proj_norm);
@@ -224,7 +224,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_output(g_task_id, all_q_padded);
         add_output(g_task_id, ext_k_cache);
@@ -248,7 +248,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_input(g_task_id, all_q_padded);
         add_output(g_task_id, all_raw_scores);
@@ -266,7 +266,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_output(g_task_id, all_cur_li);
         add_output(g_task_id, all_cur_mi);
@@ -283,7 +283,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_output(g_task_id, all_oi_tmp);
         add_input(g_task_id, ext_block_table);
@@ -302,7 +302,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, all_oi_tmp);
             add_input(g_task_id, all_cur_mi);
@@ -334,7 +334,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_input(g_task_id, ext_hidden_states);
         add_input(g_task_id, attn_out);
@@ -357,7 +357,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         g_task_id++;
         while (try_new_task(g_task_id))
         {
-            wait();
+            spin_wait();
         }
         add_input(g_task_id, resid1_tile);
         add_output(g_task_id, post_norm_tile);
@@ -380,7 +380,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, post_norm_tile);
             add_input(g_task_id, ext_w_gate);
@@ -395,7 +395,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, post_norm_tile);
             add_input(g_task_id, ext_w_up);
@@ -410,7 +410,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, ret0__out);
             add_input(g_task_id, ret0__out_1);
@@ -433,7 +433,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, mlp_tile);
             add_input(g_task_id, ext_w_down);
@@ -450,7 +450,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             g_task_id++;
             while (try_new_task(g_task_id))
             {
-                wait();
+                spin_wait();
             }
             add_input(g_task_id, fp32_chunk_gm);
             add_input(g_task_id, resid1_tile);

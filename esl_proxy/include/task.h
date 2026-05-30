@@ -38,8 +38,14 @@ typedef enum {
     TASK_STATUS_COMPLETED,
 } task_status_t;
 
+enum {
+    EMPTY     = TASK_STATUS_EMPTY,
+    PENDING   = TASK_STATUS_CREATING,
+    COMPLETED = TASK_STATUS_COMPLETED,
+};
+
 typedef struct {
-    task_status_t status;
+    task_status_t state;
     uint16_t task_id;
     uint32_t successor_cnt;
 } task_state;
@@ -59,8 +65,8 @@ struct task_desc {
 };
 
 struct succ_list {
-    uint16_t successor[3];
-    struct succ_list* next;
+    uint16_t successor[SUCC_NODE_CNT];
+    struct succ_list *next;
 };
 
 #endif /* DAG_TASK_H */
