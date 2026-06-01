@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -12,9 +14,16 @@
 #include "log.h"
 #include "manager.h"
 #include "mem_pool.h"
-#include "qwen3_decode.h"
 
-#define MEM_POOL_BYTES (512UL * 1024UL * 1024UL)
+/* Orchestration case header. Override at build time, e.g.
+ *   make CASE=qwen3_decode_tensormap.h
+ * Defaults to the hand-wired all-SPMD case. */
+#ifndef ORCH_CASE
+#define ORCH_CASE "qwen3_decode.h"
+#endif
+#include ORCH_CASE
+
+#define MEM_POOL_BYTES (1024UL * 1024UL * 1024UL)
 #define WHEN2FREE_CAP 4096
 
 static uint8_t g_mem_pool_storage[MEM_POOL_BYTES];
@@ -60,11 +69,44 @@ int main(void) {
     aicpu_orchestration_entry(0);
     uint64_t end_ns = get_time_ns();
     uint64_t elapsed_ns = end_ns - start_ns;
+
+    /* Subtask count: an SPMD task expands into block_num (count) subtasks; every
+     * non-SPMD task is a single subtask. Computed after orchestration so it does
+     * not count toward elapsed_time. */
+    uint64_t subtask_cnt = 0;
+    for (uint32_t i = 1; i <= g_task_id; i++) {
+        const struct task_desc *t = &g_basic_buf[i & RING_MASK];
+        if (t->mode == ORG_MODE_SPMD_SYNC || t->mode == ORG_MODE_SPMD_ASYNC)
+            subtask_cnt += t->count;
+        else
+            subtask_cnt += 1;
+    }
+
     fprintf(stderr, "[orchestration] task_cnt=%d\n", g_task_id);
-    fprintf(stderr, "[orchestration] elapsed_time=%llu ns\n", elapsed_ns);
-    fprintf(stderr, "[orchestration] time_240_task=%llu ns\n", elapsed_ns / g_task_id * 240);
+    fprintf(stderr, "[orchestration] subtask_cnt=%llu\n",
+            (unsigned long long)subtask_cnt);
+    fprintf(stderr, "[orchestration] elapsed_time=%llu ns\n",
+            (unsigned long long)elapsed_ns);
+    fprintf(stderr, "[orchestration] time_240_task=%llu ns\n",
+            (unsigned long long)(elapsed_ns / g_task_id * 240));
+    fprintf(stderr, "[orchestration] time_240_subtask=%llu ns\n",
+            (unsigned long long)(elapsed_ns / subtask_cnt * 240));
 #else
     aicpu_orchestration_entry(0);
+#endif
+
+    fprintf(stderr, "[mem_pool] allocated=%zu MiB, available=%zu MiB (pool=%zu MiB)\n",
+            mem_pool_allocated(&g_mem_pool) / (1024UL * 1024UL),
+            mem_pool_available(&g_mem_pool) / (1024UL * 1024UL),
+            sizeof g_mem_pool_storage / (1024UL * 1024UL));
+
+#ifdef ESL_PROXY_TENSORMAP_H
+    /* tensormap block-map usage after orchestration. pool_high_water = max
+     * entries ever live at once (free-list reuse does not advance it); a value
+     * well below the total tm_out/tm_inout count means the submit-time
+     * reclamation fired during the build. */
+    fprintf(stderr, "[tensormap] pool_high_water=%d freed=%d (pool_size=%u, %zuB/entry)\n",
+            g_tmb_next_idx, g_tmb_free_num, (unsigned)TMD_POOL_SIZE, sizeof(TmbEntry));
 #endif
     return 0;
 }

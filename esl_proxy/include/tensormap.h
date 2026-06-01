@@ -434,6 +434,243 @@ static inline int32_t tm_valid_count(const TmTensorMap *self) {
     return n;
 }
 
+/* ===========================================================================
+ * High-level tensormap dependency layer: tm_deps_init / tm_in / tm_out /
+ * tm_inout / tm_submit  (merged from the former cases/tensormap_deps.h).
+ *
+ * Layered on the producer-lookup map above + esl_proxy's ring_buf.h
+ * (add_input/add_output/add_inout/succeed/submit). It is compiled ONLY when
+ * ring_buf.h is already in scope (its include guard DAG_RING_BUF_H is defined),
+ * so the low-level map stays standalone for callers that don't use ring_buf
+ * (e.g. tests/test_tensormap.c). A case file enables it simply by including
+ * ring_buf.h before tensormap.h.
+ *
+ * Granularity is per-block (manual scoping): a task marks the block range of a
+ * tensor it touches via tm_*_view; producer entries are kept in a compact map
+ * (TmbEntry/TmbMap below, separate from the generic TmEntry map above) bucketed
+ * by (base_addr, block), so a consumer resolves the producers of just the
+ * blocks it reads. Whole-tensor tm_in/out/inout use the reserved block id
+ * TMB_WHOLE_BLK; the case keeps a base EITHER whole OR block, never both.
+ * ========================================================================== */
+#ifdef DAG_RING_BUF_H
+
+/* Static sizing — no dynamic allocation: the whole map lives in the static
+ * arrays below, sized to this workload's upper bounds (override with -D).
+ *   POOL_SIZE   >= peak live producer entries (one per produced block; the
+ *                 build phase retires nothing, measured high-water 894).
+ *   NUM_BUCKETS  power of two; buckets are keyed by (base_addr, block).
+ *   TASK_WINDOW  power of two, >= engine RING_SIZE (task ids recycle in it). */
+#ifndef TMD_POOL_SIZE
+#define TMD_POOL_SIZE 8192u
+#endif
+#ifndef TMD_NUM_BUCKETS
+#define TMD_NUM_BUCKETS 2048u
+#endif
+#ifndef TMD_TASK_WINDOW
+#define TMD_TASK_WINDOW 65536u
+#endif
+
+/* Block id reserved for a whole-tensor region. The orchestration case keeps a
+ * given base address EITHER whole OR block-view, never both, so whole regions
+ * live in their own (base, TMB_WHOLE_BLK) bucket and never collide with real
+ * block ids (which are small batch/tile indices). */
+#define TMB_WHOLE_BLK 0xFFFFFFFFu
+#ifndef TMB_LOOKUP_DEDUP_CAP
+#define TMB_LOOKUP_DEDUP_CAP 256  /* max distinct producers deduped per multi-block read */
+#endif
+
+/* Compact producer entry (40B vs the generic TmEntry's 112B): only the fields
+ * the block dependency lookup needs. One entry per produced block, bucketed by
+ * (base, blk); chained per producer task for O(1) retirement. */
+typedef struct TmbEntry {
+    uint64_t base;          /* tensor base address */
+    uint32_t producer;      /* producer task id (ring 0) */
+    uint32_t blk;           /* the single block this entry covers (or TMB_WHOLE_BLK) */
+    int32_t  next_bucket;   /* pool-index chains (-1 = end) */
+    int32_t  prev_bucket;
+    int32_t  next_task;
+    int32_t  prev_task;
+    int32_t  bucket;        /* owning bucket, -1 when free */
+} TmbEntry;
+
+static TmbEntry g_tmb_pool[TMD_POOL_SIZE];
+static int32_t  g_tmb_bucket[TMD_NUM_BUCKETS];
+static int32_t  g_tmb_free[TMD_POOL_SIZE];
+static int32_t  g_tmb_task_head[TMD_TASK_WINDOW];
+static int32_t  g_tmb_next_idx;     /* bump high-water (max entries ever live at once) */
+static int32_t  g_tmb_free_num;
+static int32_t  g_tmb_last_alive;   /* validity watermark = g_min_uncomplete_task */
+static int32_t  g_tmb_last_cleanup;
+
+/* Hash (base, blk) into a bucket. Different blocks of the same base spread
+ * across buckets, so a single-block read scans an O(1) chain instead of every
+ * writer of the buffer. */
+static inline uint32_t tmb_hash(uint64_t base, uint32_t blk) {
+    uint64_t k = (base + 0x9E3779B97F4A7C15ULL) * 0x9E3779B97F4A7C15ULL;
+    k ^= ((uint64_t)blk + 0x9E3779B9u) * 0xD1B54A32D192ED03ULL;
+    return (uint32_t)(k >> (64 - __builtin_ctz(TMD_NUM_BUCKETS)));
+}
+
+static inline int32_t tmb_new_entry(void) {
+    if (g_tmb_free_num > 0) return g_tmb_free[--g_tmb_free_num];
+    assert(g_tmb_next_idx < (int32_t)TMD_POOL_SIZE);
+    return g_tmb_next_idx++;
+}
+
+static inline void tmb_free_entry(int32_t idx) {
+    TmbEntry *e = &g_tmb_pool[idx];
+    if (e->prev_bucket == -1) g_tmb_bucket[e->bucket] = e->next_bucket;
+    else g_tmb_pool[e->prev_bucket].next_bucket = e->next_bucket;
+    if (e->next_bucket != -1) g_tmb_pool[e->next_bucket].prev_bucket = e->prev_bucket;
+    g_tmb_free[g_tmb_free_num++] = idx;
+    e->bucket = -1;
+    e->next_bucket = e->prev_bucket = e->next_task = e->prev_task = -1;
+}
+
+/* Register `producer` as a writer of (base, blk). */
+static inline void tmb_insert(uint64_t base, uint32_t blk, uint16_t producer) {
+    int32_t idx = tmb_new_entry();
+    TmbEntry *e = &g_tmb_pool[idx];
+    e->base = base;
+    e->producer = producer;
+    e->blk = blk;
+
+    uint32_t b = tmb_hash(base, blk);
+    e->bucket = (int32_t)b;
+    e->prev_bucket = -1;
+    e->next_bucket = g_tmb_bucket[b];
+    if (g_tmb_bucket[b] != -1) g_tmb_pool[g_tmb_bucket[b]].prev_bucket = idx;
+    g_tmb_bucket[b] = idx;
+
+    uint32_t slot = producer & (TMD_TASK_WINDOW - 1);
+    e->prev_task = -1;
+    e->next_task = g_tmb_task_head[slot];
+    if (g_tmb_task_head[slot] != -1) g_tmb_pool[g_tmb_task_head[slot]].prev_task = idx;
+    g_tmb_task_head[slot] = idx;
+}
+
+/* Wire an edge to every live producer of (base, blk), skipping self and (when
+ * `seen` != NULL) producers already wired for this consumer region. */
+static inline void tmb_probe_block(uint64_t base, uint32_t blk, uint16_t consumer,
+                                   uint16_t *seen, int *nseen) {
+    int32_t cur = g_tmb_bucket[tmb_hash(base, blk)];
+    while (cur != -1) {
+        TmbEntry *e = &g_tmb_pool[cur];
+        int32_t next = e->next_bucket;
+        if ((int32_t)e->producer >= g_tmb_last_alive && e->base == base &&
+            e->blk == blk && (uint16_t)e->producer != consumer) {
+            int dup = 0;
+            if (seen != NULL)
+                for (int i = 0; i < *nseen; i++)
+                    if (seen[i] == (uint16_t)e->producer) { dup = 1; break; }
+            if (!dup) {
+                succeed(consumer, (uint16_t)e->producer);
+                if (seen != NULL && *nseen < TMB_LOOKUP_DEDUP_CAP)
+                    seen[(*nseen)++] = (uint16_t)e->producer;
+            }
+        }
+        cur = next;
+    }
+}
+
+/* Resolve producers of the block range [blk, blk+nblk) for `consumer`. A single
+ * block skips the dedup scratch (a producer cannot appear twice in one block);
+ * multi-block reads dedup so a producer spanning several blocks yields one edge. */
+static inline void tmb_lookup(uint64_t base, uint64_t blk, uint64_t nblk, uint16_t consumer) {
+    if (nblk <= 1) {
+        tmb_probe_block(base, (uint32_t)blk, consumer, NULL, NULL);
+        return;
+    }
+    uint16_t seen[TMB_LOOKUP_DEDUP_CAP];
+    int nseen = 0;
+    for (uint64_t i = 0; i < nblk; i++)
+        tmb_probe_block(base, (uint32_t)(blk + i), consumer, seen, &nseen);
+}
+
+/* Reclaim entries of tasks retired in [old_alive, new_alive). */
+static inline void tmb_cleanup_retired(int32_t old_alive, int32_t new_alive) {
+    for (int32_t local = old_alive; local < new_alive; local++) {
+        uint32_t slot = (uint32_t)local & (TMD_TASK_WINDOW - 1);
+        int32_t cur = g_tmb_task_head[slot];
+        while (cur != -1) {
+            int32_t next = g_tmb_pool[cur].next_task;
+            tmb_free_entry(cur);
+            cur = next;
+        }
+        g_tmb_task_head[slot] = -1;
+    }
+    g_tmb_last_cleanup = new_alive;
+}
+
+/* One-time setup; call at the top of the orchestration entry. */
+static inline void tm_deps_init(void) {
+    for (uint32_t i = 0; i < TMD_NUM_BUCKETS; i++) g_tmb_bucket[i] = -1;
+    for (uint32_t i = 0; i < TMD_TASK_WINDOW; i++) g_tmb_task_head[i] = -1;
+    g_tmb_next_idx = 0;
+    g_tmb_free_num = 0;
+    g_tmb_last_alive = 0;
+    g_tmb_last_cleanup = 0;
+}
+
+/* INPUT: record on the task and add an edge from every live (whole-tensor) producer. */
+static inline void tm_in(uint16_t tid, Tensor t) {
+    add_input(tid, t);
+    tmb_lookup((uint64_t)t, TMB_WHOLE_BLK, 1, tid);
+}
+
+/* INPUT, read-only-external: never produced by any task (weights, rope tables,
+ * block_table, hidden_states) — record it but skip the producer lookup.
+ * NEVER use for a tensor some task writes via tm_out/tm_inout(_view). */
+static inline void tm_in_ro(uint16_t tid, Tensor t) {
+    add_input(tid, t);
+}
+
+/* OUTPUT: register tid as a whole-tensor producer of this address. */
+static inline void tm_out(uint16_t tid, Tensor t) {
+    add_output(tid, t);
+    tmb_insert((uint64_t)t, TMB_WHOLE_BLK, tid);
+}
+
+/* INOUT: resolve prior producers (read-before-write), then become a producer. */
+static inline void tm_inout(uint16_t tid, Tensor t) {
+    add_inout(tid, t);
+    tmb_lookup((uint64_t)t, TMB_WHOLE_BLK, 1, tid);
+    tmb_insert((uint64_t)t, TMB_WHOLE_BLK, tid);
+}
+
+/* ---- block-view variants -------------------------------------------------
+ * Scope to block range [blk, blk+nblk). A consumer that touches only some
+ * blocks of a shared buffer depends solely on the producers of the overlapping
+ * blocks, not every writer of the buffer. A producer registers one entry per
+ * block it writes (nblk is 1 for every producer in the case today). */
+
+static inline void tm_in_view(uint16_t tid, Tensor t, uint64_t blk, uint64_t nblk) {
+    add_input(tid, t);
+    tmb_lookup((uint64_t)t, blk, nblk, tid);
+}
+
+static inline void tm_out_view(uint16_t tid, Tensor t, uint64_t blk, uint64_t nblk) {
+    add_output(tid, t);
+    for (uint64_t i = 0; i < nblk; i++) tmb_insert((uint64_t)t, (uint32_t)(blk + i), tid);
+}
+
+static inline void tm_inout_view(uint16_t tid, Tensor t, uint64_t blk, uint64_t nblk) {
+    add_inout(tid, t);
+    tmb_lookup((uint64_t)t, blk, nblk, tid);
+    for (uint64_t i = 0; i < nblk; i++) tmb_insert((uint64_t)t, (uint32_t)(blk + i), tid);
+}
+
+/* Close the task: advance the validity watermark to g_min_uncomplete_task and
+ * reclaim producers of any retired task (a no-op during a pure build phase). */
+static inline void tm_submit(uint16_t tid) {
+    submit(tid);
+    int32_t la = (int32_t)g_min_uncomplete_task;
+    g_tmb_last_alive = la;
+    if (la > g_tmb_last_cleanup) tmb_cleanup_retired(g_tmb_last_cleanup, la);
+}
+
+#endif  /* DAG_RING_BUF_H */
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif
