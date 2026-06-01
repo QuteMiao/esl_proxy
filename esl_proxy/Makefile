@@ -15,7 +15,13 @@ CC       := cc
 # -MMD -MP emits a .d alongside each .o listing the headers it included, so a
 # change to any include/*.h (e.g. tensormap.h) rebuilds the dependent objects.
 CFLAGS   := -std=c11 -Wall -Wextra -pedantic -O3 -I include -I cases -DORCH_CASE='"$(CASE)"' -MMD -MP
-LDFLAGS  := -lpthread -latomic
+# -latomic is needed on Linux but not on macOS (clang)
+UNAME_S  := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+    LDFLAGS  := -lpthread -latomic
+else
+    LDFLAGS  := -lpthread
+endif
 
 OBJ_DIR := build/obj
 BIN_DIR := bin
