@@ -17,12 +17,61 @@
 #include "mpmc_queue.h"
 #include "task.h"
 
-#define Tensor uint64_t
-
 typedef enum {
     BFLOAT16 = 2,
     FLOAT32  = 4,
 } dtype_t;
+
+#if defined(USE_TENSORMAP) && !defined(TENSORMAP_WHOLE_BUFFER)
+typedef struct {
+    uint64_t base;
+    uint32_t storage[2];
+    uint32_t shapes[2];
+    uint32_t offsets[2];
+    uint32_t strides[2];
+    dtype_t  dtype;
+} Tensor;
+
+static inline uint64_t tensor_base(Tensor t)
+{
+    return t.base;
+}
+
+static inline Tensor tensor_from_base(uint64_t base)
+{
+    Tensor t;
+    t.base = base;
+    t.storage[0] = t.storage[1] = 0;
+    t.shapes[0] = t.shapes[1] = 0;
+    t.offsets[0] = t.offsets[1] = 0;
+    t.strides[0] = t.strides[1] = 0;
+    t.dtype = (dtype_t)0;
+    return t;
+}
+
+static inline Tensor tensor_make_2d(uint64_t base, uint32_t d0, uint32_t d1, dtype_t dtype)
+{
+    Tensor t;
+    t.base = base;
+    t.storage[0] = t.shapes[0] = d0;
+    t.storage[1] = t.shapes[1] = d1;
+    t.offsets[0] = 0;
+    t.offsets[1] = 0;
+    t.strides[0] = d1;
+    t.strides[1] = 1;
+    t.dtype = dtype;
+    return t;
+}
+
+static inline Tensor tensor_view(Tensor t, uint32_t row0, uint32_t nrows)
+{
+    t.offsets[0] += row0;
+    t.shapes[0] = nrows;
+    return t;
+}
+#else
+#define Tensor uint64_t
+#endif
 
 extern uint16_t g_task_id;
 extern uint16_t g_min_uncomplete_task;
@@ -51,19 +100,31 @@ static inline void spin_wait(void)
 static inline void add_input(uint16_t task_id, Tensor t)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
+#if defined(USE_TENSORMAP) && !defined(TENSORMAP_WHOLE_BUFFER)
+    g_basic_buf[task_id & RING_MASK].data[idx] = tensor_base(t);
+#else
     g_basic_buf[task_id & RING_MASK].data[idx] = t;
+#endif
 }
 
 static inline void add_output(uint16_t task_id, Tensor t)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
+#if defined(USE_TENSORMAP) && !defined(TENSORMAP_WHOLE_BUFFER)
+    g_basic_buf[task_id & RING_MASK].data[idx] = tensor_base(t);
+#else
     g_basic_buf[task_id & RING_MASK].data[idx] = t;
+#endif
 }
 
 static inline void add_inout(uint16_t task_id, Tensor t)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
+#if defined(USE_TENSORMAP) && !defined(TENSORMAP_WHOLE_BUFFER)
+    g_basic_buf[task_id & RING_MASK].data[idx] = tensor_base(t);
+#else
     g_basic_buf[task_id & RING_MASK].data[idx] = t;
+#endif
 }
 
 static inline void add_scalar(uint16_t task_id, int64_t t)

@@ -13,8 +13,9 @@
  * per-kernel duration so assertions can identify task types.
  *
  * Build:
- *   gcc -std=c11 -Wall -Werror -Wextra -pedantic -I include -I cases \
- *       tests/test_qwen3_decode_tensormap.c -o /tmp/test_qwen3_tm
+ *   gcc -std=c11 -Wall -Werror -Wextra -pedantic -DUSE_TENSORMAP \
+ *       -I include -I cases tests/test_qwen3_decode_tensormap.c \
+ *       -o /tmp/test_qwen3_tm
  */
 
 #include <assert.h>
@@ -28,10 +29,71 @@
 #define DAG_MEM_POOL_H
 #define DAG_MPMC_QUEUE_H
 
-#define Tensor uint64_t
-#define BFLOAT16 2
-#define FLOAT32 4
+typedef enum { BFLOAT16 = 2, FLOAT32 = 4 } dtype_t;
 
+typedef struct {
+    uint64_t base;
+    uint32_t storage[2];
+    uint32_t shapes[2];
+    uint32_t offsets[2];
+    uint32_t strides[2];
+    dtype_t  dtype;
+} Tensor;
+
+static inline uint64_t tensor_base(Tensor t) { return t.base; }
+
+static inline Tensor tensor_from_base(uint64_t base)
+{
+    Tensor t;
+    t.base = base;
+    t.storage[0] = t.storage[1] = 0;
+    t.shapes[0] = t.shapes[1] = 0;
+    t.offsets[0] = t.offsets[1] = 0;
+    t.strides[0] = t.strides[1] = 0;
+    t.dtype = (dtype_t)0;
+    return t;
+}
+
+static inline Tensor tensor_make_2d(uint64_t base, uint32_t d0, uint32_t d1, dtype_t dtype)
+{
+    Tensor t;
+    t.base = base;
+    t.storage[0] = t.shapes[0] = d0;
+    t.storage[1] = t.shapes[1] = d1;
+    t.offsets[0] = 0;
+    t.offsets[1] = 0;
+    t.strides[0] = d1;
+    t.strides[1] = 1;
+    t.dtype = dtype;
+    return t;
+}
+
+static inline Tensor tensor_view(Tensor t, uint32_t row0, uint32_t nrows)
+{
+    t.offsets[0] += row0;
+    t.shapes[0] = nrows;
+    return t;
+}
+
+static inline void add_input(uint16_t tid, Tensor t) { (void)tid; (void)t; }
+static inline void add_output(uint16_t tid, Tensor t) { (void)tid; (void)t; }
+static inline void add_inout(uint16_t tid, Tensor t) { (void)tid; (void)t; }
+static inline bool succeed(uint16_t c, uint16_t p);
+static inline void submit(uint16_t tid) { (void)tid; }
+
+static uint16_t g_task_id = 0;
+static uint16_t g_min_uncomplete_task = 0;
+
+#include "tensormap.h"
+
+static uint64_t g_alloc_bump = 0x100000u;
+static inline Tensor alloc_tensors(uint32_t shape[], int dim, int bytes) {
+    uint64_t a = g_alloc_bump;
+    uint64_t sz = (uint64_t)shape[0] * (uint64_t)shape[1] * (uint64_t)dim * (uint64_t)bytes;
+    if (sz < 64u) sz = 64u;
+    g_alloc_bump += (sz + 63u) & ~(uint64_t)63u;
+    return tensor_make_2d(a, shape[0], shape[1], (dtype_t)bytes);
+}
 /* Symbols the case file's set_task_type()/set_block_num() helpers need from the
  * neutralized task.h/conf.h. A flat g_basic_buf (RING_MASK == identity over the
  * task ids used here) is enough to record type/mode/count. */
@@ -43,34 +105,11 @@ struct task_desc { task_type_t type; org_mode_t mode; uint32_t count; };
 static struct task_desc g_basic_buf[RING_SIZE];
 static inline void spin_wait(void) {}
 
-static uint16_t g_task_id = 0;
-static uint16_t g_min_uncomplete_task = 0;
-
-static uint64_t g_alloc_bump = 0x100000u;
-static inline Tensor alloc_tensors(uint32_t shape[], int dim, int bytes) {
-    uint64_t a = g_alloc_bump;
-    uint64_t sz = (uint64_t)shape[0] * (uint64_t)shape[1] * (uint64_t)dim * (uint64_t)bytes;
-    if (sz < 64u) sz = 64u;
-    g_alloc_bump += (sz + 63u) & ~(uint64_t)63u;
-    return a;
-}
-static inline void wait(void) {}
-static inline bool try_new_task(uint32_t id) {
-    (void)id;
-    return false; /* claim succeeds immediately; loop body never runs */
-}
-
-static int32_t g_dur[1u << 16];
-static inline void add_duration(uint16_t tid, int64_t d) { g_dur[tid] = (int32_t)d; }
-static inline void add_scalar(uint16_t tid, int64_t s) { (void)tid; (void)s; }
-static inline void add_input(uint16_t tid, Tensor t) { (void)tid; (void)t; }
-static inline void add_output(uint16_t tid, Tensor t) { (void)tid; (void)t; }
-static inline void add_inout(uint16_t tid, Tensor t) { (void)tid; (void)t; }
-
 #define MAX_EDGES 1000000
 static uint16_t g_edge_c[MAX_EDGES];
 static uint16_t g_edge_p[MAX_EDGES];
 static int g_edge_n = 0;
+
 static inline bool succeed(uint16_t c, uint16_t p) {
     if (g_edge_n < MAX_EDGES) {
         g_edge_c[g_edge_n] = c;
@@ -79,7 +118,15 @@ static inline bool succeed(uint16_t c, uint16_t p) {
     }
     return true;
 }
-static inline void submit(uint16_t tid) { (void)tid; }
+
+static inline bool try_new_task(uint32_t id) {
+    (void)id;
+    return false; /* claim succeeds immediately; loop body never runs */
+}
+
+static int32_t g_dur[1u << 16];
+static inline void add_duration(uint16_t tid, int64_t d) { g_dur[tid] = (int32_t)d; }
+static inline void add_scalar(uint16_t tid, int64_t s) { (void)tid; (void)s; }
 
 #include "qwen3_decode_tensormap.h"
 

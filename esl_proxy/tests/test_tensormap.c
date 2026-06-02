@@ -11,7 +11,7 @@
  *      WITHOUT touching ring_buf.h or the manual succeed() path.
  *
  * Build (esl_proxy constitution flags):
- *   gcc -std=c11 -Wall -Werror -Wextra -pedantic -I include tests/test_tensormap.c -o /tmp/test_tensormap
+ *   gcc -std=c11 -Wall -Werror -Wextra -pedantic -DUSE_TENSORMAP -I include tests/test_tensormap.c -o /tmp/test_tensormap
  *   (older glibc may also need -lrt for clock_gettime)
  *
  * Run: ./test_tensormap [SCALE]   — SCALE (default 1) multiplies the perf workload.
@@ -45,25 +45,23 @@ static TmConfig make_config(void) {
 static TmRegion region_1d(uint64_t base, uint64_t off, uint64_t len, uint64_t storage) {
     TmRegion r = {0};
     r.base_addr = base;
-    r.start_offset = off;
-    r.extent_elem = len;
     r.storage_numel = storage;
     r.elem_size = 4;
-    r.ndims = 1;
-    r.is_contiguous = 1;
-    r.shapes[0] = (uint32_t)len;
-    r.strides[0] = 1;
+    r.shapes[0] = 1;
+    r.offsets[0] = 0;
+    r.shapes[1] = (uint16_t)len;
+    r.offsets[1] = (uint16_t)off;
     return r;
 }
 
-/* Degenerate whole-buffer region: pure base-address match (ndims=0 -> OTHER on hit).
+/* Degenerate whole-buffer region: pure base-address match.
  * This is the Scope-A esl_proxy mapping when a Tensor is just a bare address. */
 static TmRegion whole_buffer_region(uint64_t base) {
     TmRegion r = {0};
     r.base_addr = base;
-    r.start_offset = 0;
-    r.extent_elem = 1;
-    r.ndims = 0;
+    r.elem_size = 1;
+    r.shapes[0] = 1;
+    r.shapes[1] = 1;
     return r;
 }
 
@@ -308,7 +306,8 @@ static uint32_t ceil_pow2(uint32_t x) {
 
 /* 64B-aligned image sized exactly for cfg (never freed by the map itself). */
 static void *alloc_image(const TmConfig *cfg) {
-    uint64_t bytes = tm_align_up(tm_bytes_required(cfg), 64);
+    uint64_t bytes = tm_bytes_required(cfg);
+    bytes = (bytes + 63u) & ~63u;
     void *p = aligned_alloc(64, bytes);
     assert(p != NULL);
     return p;
@@ -424,6 +423,48 @@ static void bench_submit(uint32_t window, uint32_t per_task, uint32_t iters) {
     free(img);
 }
 
+static TmRegion region_2d(uint64_t base, uint32_t stor_d0, uint32_t stor_d1, uint32_t row0,
+                          uint32_t nrows, uint32_t d1, uint32_t elem_size) {
+    TmRegion r;
+    memset(&r, 0, sizeof r);
+    r.base_addr = base;
+    r.storage_numel = (uint64_t)stor_d0 * stor_d1;
+    r.elem_size = elem_size;
+    r.shapes[0] = (uint16_t)nrows;
+    r.shapes[1] = (uint16_t)d1;
+    r.offsets[0] = (uint16_t)row0;
+    r.offsets[1] = 0;
+    return r;
+}
+
+static void test_2d_row_tile_overlap(void) {
+    printf("Test: 2d_row_tile_overlap (qwen3-style tile rows)\n");
+    TmConfig cfg = make_config();
+    TmTensorMap map;
+    tm_init(&map, g_buf, &cfg);
+
+    const uint64_t base = 0xD0000;
+    const uint32_t batch = 96, hidden = 5120, tile = 16;
+
+    /* Producer: tile 1 writes rows [16, 32). */
+    TmRegion prod = region_2d(base, batch, hidden, 16, tile, hidden, 4);
+    tm_insert(&map, &prod, tm_make_id(0, 3));
+
+    /* Consumer reading same tile overlaps. */
+    HitSink hit = collect(&map, region_2d(base, batch, hidden, 16, tile, hidden, 4));
+    assert(hit.count == 1 && tm_local_of(hit.producers[0]) == 3);
+
+    /* Consumer reading a different tile does not overlap. */
+    HitSink miss = collect(&map, region_2d(base, batch, hidden, 0, tile, hidden, 4));
+    assert(miss.count == 0);
+
+    /* Consumer reading rows [8, 24) partially overlaps tile 1. */
+    HitSink part = collect(&map, region_2d(base, batch, hidden, 8, 16, hidden, 4));
+    assert(part.count == 1 && part.statuses[0] == TM_OVERLAP_OTHER);
+
+    printf("  PASSED\n");
+}
+
 static void run_benchmarks(uint32_t scale) {
     printf("=== Performance (scale=%u; pass an integer arg to scale the workload) ===\n", scale);
     printf("  %-30s %11s  %8s  %8s  %9s\n", "benchmark", "ops", "time", "ns/op", "Mops/s");
@@ -441,6 +482,7 @@ int main(int argc, char **argv) {
     test_remove_in_callback();
     test_attach_relocated_image();
     test_multi_producer_same_base();
+    test_2d_row_tile_overlap();
     test_coexistence_demo();
 
     printf("\n=== All Tests Passed ===\n\n");

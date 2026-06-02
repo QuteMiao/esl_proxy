@@ -21,26 +21,22 @@
 // Durations are the V200-benchmark per-subtask means (Readme.md, 2026/5/30 AICore
 // View caliber) in ns: each SPMD block runs for the per-kernel mean.
 //
-// Dependencies are block-granular (manual scoping). A shared cross-iteration
-// buffer is conceptually cut into blocks and each task marks the block range it
-// touches via tm_*_view(tid, t, blk, nblk); tensormap then wires an edge only
-// between producer/consumer whose block ranges overlap (include/tensormap.h,
-// tm_overlap L1 range test). Buffers that are private to one loop iteration
-// (normed_tile, all_raw_scores, gate_tile, ...) keep the whole-buffer tm_in/out
-// helpers, since their addresses are already unique per iteration.
+// Dependencies are row-range-granular via tm_*_view(t, blk, nblk): tensormap.h
+// interprets (blk, nblk) as rows [blk, blk+nblk), then tm_overlap wires edges.
+// Private per-iteration buffers use whole-tensor tm_in/out.
 //
-// Block keys used here:
-//   * q_proj / k_proj / v_proj / q_proj_norm / k_proj_norm : block = tile index b0/16.
-//   * all_q_padded / ext_k_cache / ext_v_cache             : block = batch index b.
-//   * attn_out                                             : block = batch index b.
+// Dependency units used here:
+//   * q_proj / k_proj / v_proj / q_proj_norm / k_proj_norm : rows [b0, b0+16).
+//   * q_padded_local / k_cache_local / v_cache_local         : one local tensor per batch.
+//   * attn_out                                                : block = batch index b.
 //
 // Resulting graph (matches the hand-wired cases/qwen3_decode.h locality):
-//   * qk_norm depends on its tile's q_proj/k_proj only (not v_proj, not other tiles).
-//   * out_proj reads attn_out rows [b0, b0+cur_valid) -> depends on only the
-//     <= cur_valid online_softmax tasks of its tile, NOT all 90 batches. This is
-//     the over-synchronization that whole-buffer granularity used to introduce.
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef USE_TENSORMAP
+#error "qwen3_decode_tensormap.h requires -DUSE_TENSORMAP"
+#endif
 
 #include "mem_pool.h"
 #include "ring_buf.h"
@@ -61,26 +57,26 @@ static inline void set_block_num(uint16_t task_id, uint32_t count)
 
 void aicpu_orchestration_entry(const uint64_t orch_args) {
     // External tensors
-    Tensor ext_hidden_states = orch_args + 0;
-    Tensor ext_input_rms_weight = orch_args + 1;
-    Tensor ext_wq = orch_args + 2;
-    Tensor ext_wk = orch_args + 3;
-    Tensor ext_wv = orch_args + 4;
-    Tensor ext_q_norm_weight = orch_args + 5;
-    Tensor ext_k_norm_weight = orch_args + 6;
-    Tensor ext_seq_lens = orch_args + 7;
-    Tensor ext_block_table = orch_args + 8;
-    Tensor ext_slot_mapping = orch_args + 9;
-    Tensor ext_rope_cos = orch_args + 10;
-    Tensor ext_rope_sin = orch_args + 11;
-    Tensor ext_k_cache = orch_args + 12;
-    Tensor ext_v_cache = orch_args + 13;
-    Tensor ext_wo = orch_args + 14;
-    Tensor ext_post_rms_weight = orch_args + 15;
-    Tensor ext_w_gate = orch_args + 16;
-    Tensor ext_w_up = orch_args + 17;
-    Tensor ext_w_down = orch_args + 18;
-    Tensor ext_out = orch_args + 19;
+    Tensor ext_hidden_states = tensor_from_base(orch_args + 0);
+    Tensor ext_input_rms_weight = tensor_from_base(orch_args + 1);
+    Tensor ext_wq = tensor_from_base(orch_args + 2);
+    Tensor ext_wk = tensor_from_base(orch_args + 3);
+    Tensor ext_wv = tensor_from_base(orch_args + 4);
+    Tensor ext_q_norm_weight = tensor_from_base(orch_args + 5);
+    Tensor ext_k_norm_weight = tensor_from_base(orch_args + 6);
+    Tensor ext_seq_lens = tensor_from_base(orch_args + 7);
+    Tensor ext_block_table = tensor_from_base(orch_args + 8);
+    Tensor ext_slot_mapping = tensor_from_base(orch_args + 9);
+    Tensor ext_rope_cos = tensor_from_base(orch_args + 10);
+    Tensor ext_rope_sin = tensor_from_base(orch_args + 11);
+    Tensor ext_k_cache = tensor_from_base(orch_args + 12);
+    Tensor ext_v_cache = tensor_from_base(orch_args + 13);
+    Tensor ext_wo = tensor_from_base(orch_args + 14);
+    Tensor ext_post_rms_weight = tensor_from_base(orch_args + 15);
+    Tensor ext_w_gate = tensor_from_base(orch_args + 16);
+    Tensor ext_w_up = tensor_from_base(orch_args + 17);
+    Tensor ext_w_down = tensor_from_base(orch_args + 18);
+    Tensor ext_out = tensor_from_base(orch_args + 19);
     (void)ext_seq_lens;
     (void)ext_slot_mapping;
 
@@ -88,9 +84,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
 
     const int64_t user_batch = 90;
     const int64_t batch_padded = (((user_batch + 15) / 16) * 16);
+    ext_out = tensor_make_2d(tensor_base(ext_out), (uint32_t)batch_padded, 5120, BFLOAT16);
 
-    uint32_t all_q_padded_ci_shapes[2] = {11520, 128};
-    Tensor all_q_padded = alloc_tensors(all_q_padded_ci_shapes, 2, BFLOAT16);
+    /* Global read-only inputs stay outside tensormap (tm_in_ro only). */
 
     uint32_t q_proj_ci_shapes[2] = {batch_padded, 5120};
     Tensor q_proj = alloc_tensors(q_proj_ci_shapes, 2, FLOAT32);
@@ -108,7 +104,6 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
     Tensor k_proj_norm = alloc_tensors(k_proj_norm_ci_shapes, 2, FLOAT32);
 
     for (int64_t b0 = 0; b0 < batch_padded; b0 += 16) {
-        const int64_t tix = b0 / 16;  // tile (block) index for the shared q/k/v_proj buffers
         uint32_t normed_tile_ci_shapes[2] = {16, 5120};
         Tensor normed_tile = alloc_tensors(normed_tile_ci_shapes, 2, BFLOAT16);
         const int64_t cur_valid = (user_batch - b0 > 16) ? 16 : (user_batch - b0);
@@ -138,7 +133,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_block_num(g_task_id, 20);
         tm_in(g_task_id, normed_tile);
         tm_in_ro(g_task_id, ext_wq);
-        tm_out_view(g_task_id, q_proj, tix, 1);  // this tile writes block `tix` of q_proj
+        Tensor q0 = tensor_view(q_proj, (uint32_t)b0, 16);
+        tm_out(g_task_id, q0);
+        
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 26060);
         tm_submit(g_task_id);
@@ -153,7 +150,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_block_num(g_task_id, 8);
         tm_in(g_task_id, normed_tile);
         tm_in_ro(g_task_id, ext_wk);
-        tm_out_view(g_task_id, k_proj, tix, 1);  // this tile writes block `tix` of k_proj
+        Tensor k0 = tensor_view(k_proj, (uint32_t)b0, 16);
+        tm_out(g_task_id, k0);
+    
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 18170);
         tm_submit(g_task_id);
@@ -168,7 +167,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         set_block_num(g_task_id, 8);
         tm_in(g_task_id, normed_tile);
         tm_in_ro(g_task_id, ext_wv);
-        tm_out_view(g_task_id, v_proj, tix, 1);  // this tile writes block `tix` of v_proj
+        Tensor v0 = tensor_view(v_proj, (uint32_t)b0, 16);
+        tm_out(g_task_id, v0);
+
         add_scalar(g_task_id, b0);
         add_duration(g_task_id, 17890);
         tm_submit(g_task_id);
@@ -180,21 +181,22 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
-        tm_out_view(g_task_id, k_proj_norm, tix, 1);
-        tm_out_view(g_task_id, q_proj_norm, tix, 1);
-        tm_in_view(g_task_id, q_proj, tix, 1);  // reads only this tile's q_proj block
+        Tensor k0_norm = tensor_view(k_proj_norm, (uint32_t)b0, 16);
+        tm_out(g_task_id, k0_norm);
+        Tensor q0_norm = tensor_view(q_proj_norm, (uint32_t)b0, 16);
+        tm_out(g_task_id, q0_norm);
+        Tensor q0_in = tensor_view(q_proj, (uint32_t)b0, 16);
+        tm_in(g_task_id, q0_in);
         tm_in_ro(g_task_id, ext_q_norm_weight);
-        tm_in_view(g_task_id, k_proj, tix, 1);  // reads only this tile's k_proj block
         tm_in_ro(g_task_id, ext_k_norm_weight);
-        add_scalar(g_task_id, 0);  // q0
-        add_scalar(g_task_id, b0);
+        Tensor k0_in = tensor_view(k_proj, (uint32_t)b0, 16);
+        tm_in(g_task_id, k0_in);
         add_duration(g_task_id, 13190);
         tm_submit(g_task_id);
     }
 
     uint32_t attn_out_ci_shapes[2] = {batch_padded, 5120};
     Tensor attn_out = alloc_tensors(attn_out_ci_shapes, 2, BFLOAT16);
-
     // Per-batch attention loop (Func5..Func9). Durations are V200-benchmark per-subtask
     // means in ns. The proxy cannot read tensor data, so seq_lens / slot_mapping reads
     // become fixed placeholders and rope/attn views use base tensors.
@@ -209,8 +211,15 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         Tensor all_cur_li = alloc_tensors(all_cur_li_ci_shapes, 2, FLOAT32);
         uint32_t all_oi_tmp_ci_shapes[2] = {4096, 128};
         Tensor all_oi_tmp = alloc_tensors(all_oi_tmp_ci_shapes, 2, FLOAT32);
+        uint32_t q_padded_local_ci_shapes[2] = {128, 128};
+        Tensor q_padded_local = alloc_tensors(q_padded_local_ci_shapes, 2, BFLOAT16);
+        const uint64_t kv_row_bytes = (uint64_t)1024u * (uint64_t)BFLOAT16;
+        Tensor k_cache_local =
+            tensor_make_2d(tensor_base(ext_k_cache) + (uint64_t)b * kv_row_bytes, 1, 1024, BFLOAT16);
+        Tensor v_cache_local =
+            tensor_make_2d(tensor_base(ext_v_cache) + (uint64_t)b * kv_row_bytes, 1, 1024, BFLOAT16);
 
-        const int64_t tix = b / 16;  // tile (block) index for the shared q/k/v_proj_norm buffers
+        const int64_t b_tile0 = (b / 16) * 16;  // row-range origin of the shared q/k/v_proj_norm tile
 
         // Fixed placeholders for control values (proxy has no tensor data to read).
         const int64_t ctx_len = 1024;
@@ -227,23 +236,26 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
-        tm_out_view(g_task_id, all_q_padded, b, 1);  // writes this batch's q rows (block b)
-        tm_out_view(g_task_id, ext_k_cache, b, 1);   // writes this batch's KV-cache slot
-        tm_out_view(g_task_id, ext_v_cache, b, 1);
-        tm_in_view(g_task_id, k_proj_norm, tix, 1);  // reads this batch's tile block
+        tm_out(g_task_id, q_padded_local);
+        tm_out(g_task_id, k_cache_local);
+        tm_out(g_task_id, v_cache_local);
+        Tensor k0_norm = tensor_view(k_proj_norm, (uint32_t)b_tile0, 16);
+        tm_in(g_task_id, k0_norm);
         tm_in_ro(g_task_id, ext_rope_cos);  // cos_lo view -> base tensor
         tm_in_ro(g_task_id, ext_rope_sin);  // sin_lo view -> base tensor
         tm_in_ro(g_task_id, ext_rope_cos);  // cos_hi view -> base tensor
         tm_in_ro(g_task_id, ext_rope_sin);  // sin_hi view -> base tensor
-        tm_in_view(g_task_id, v_proj, tix, 1);
-        tm_in_view(g_task_id, q_proj_norm, tix, 1);
+        Tensor v0 = tensor_view(v_proj, (uint32_t)b_tile0, 16);
+        tm_in(g_task_id, v0);
+        Tensor q0_norm = tensor_view(q_proj_norm, (uint32_t)b_tile0, 16);
+        tm_in(g_task_id, q0_norm);
         add_scalar(g_task_id, slot_block);
         add_scalar(g_task_id, slot_offset);
         add_scalar(g_task_id, b);
         add_duration(g_task_id, 9480);
         tm_submit(g_task_id);
 
-        // Spmd qk_matmul (AIC, block_num 4) — dep Func5 (all_q_padded, ext_k_cache).
+        // Spmd qk_matmul (AIC, block_num 4) — dep Func5 (q_padded_local, k_cache_local).
         g_task_id++;
         while (try_new_task(g_task_id))
         {
@@ -251,10 +263,10 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         }
         set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 4);
-        tm_in_view(g_task_id, all_q_padded, b, 1);
+        tm_in(g_task_id, q_padded_local);
         tm_out(g_task_id, all_raw_scores);
         tm_in_ro(g_task_id, ext_block_table);
-        tm_in_view(g_task_id, ext_k_cache, b, 1);
+        tm_in(g_task_id, k_cache_local);
         add_scalar(g_task_id, b);
         add_scalar(g_task_id, ctx_blocks);
         add_scalar(g_task_id, block_table_base);
@@ -278,7 +290,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         add_duration(g_task_id, 19400);
         tm_submit(g_task_id);
 
-        // Spmd sv_matmul (AIC, block_num 4) — dep Func5 (ext_v_cache) and Func7 (all_exp_padded).
+        // Spmd sv_matmul (AIC, block_num 4) — dep Func5 (v_cache_local) and Func7 (all_exp_padded).
         g_task_id++;
         while (try_new_task(g_task_id))
         {
@@ -289,7 +301,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         tm_out(g_task_id, all_oi_tmp);
         tm_in_ro(g_task_id, ext_block_table);
         tm_in(g_task_id, all_exp_padded);
-        tm_in_view(g_task_id, ext_v_cache, b, 1);
+        tm_in(g_task_id, v_cache_local);
         add_scalar(g_task_id, ctx_blocks);
         add_scalar(g_task_id, block_table_base);
         add_duration(g_task_id, 31650);
@@ -307,7 +319,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         tm_in(g_task_id, all_oi_tmp);
         tm_in(g_task_id, all_cur_mi);
         tm_in(g_task_id, all_cur_li);
-        tm_inout_view(g_task_id, attn_out, b, 1);  // writes only this batch's row block
+        Tensor attn_out_tile = tensor_view(attn_out, (uint32_t)b, 1);
+        tm_inout(g_task_id, attn_out_tile);
+
         add_scalar(g_task_id, ctx_blocks);
         add_duration(g_task_id, 20820);
         tm_submit(g_task_id);
@@ -343,7 +357,8 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         tm_in_ro(g_task_id, ext_hidden_states);
         // reads only the attn_out rows of this tile's batches -> depends on the
         // <= cur_valid online_softmax tasks for [b0, b0+cur_valid), not all 90.
-        tm_in_view(g_task_id, attn_out, b0, cur_valid);
+        Tensor attn_out_tile = tensor_view(attn_out, (uint32_t)b0, (uint32_t)cur_valid);
+        tm_in(g_task_id, attn_out_tile);
         tm_in_ro(g_task_id, ext_wo);
         tm_inout(g_task_id, resid1_tile);
         tm_out(g_task_id, gm_pipe_buffer_0);

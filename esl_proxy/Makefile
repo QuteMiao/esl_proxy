@@ -24,6 +24,10 @@ else
     LDFLAGS  := -lpthread
 endif
 
+ifneq ($(filter qwen3_decode_tensormap.h,$(CASE)),)
+CFLAGS   += -DUSE_TENSORMAP
+endif
+
 OBJ_DIR := build/obj
 BIN_DIR := bin
 TARGET  := $(BIN_DIR)/esl_proxy
