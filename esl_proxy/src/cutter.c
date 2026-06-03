@@ -11,7 +11,7 @@ extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 void *cutter_worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
-    WORKER_LOGF("cutter", "worker %d started", tid);
+    WORKER_LOGF("cutter", "worker %d started %d", tid, 0);
     
     while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id)) {
         // 从所有 ctrl 的 completed_queue 取任务处理依赖
@@ -28,16 +28,15 @@ void *cutter_worker(void *arg)
             uint16_t cnt = 0;
             // Process any available completed tasks (dequeue up to CUTTER_BATCH_SIZE at a time)
             if (cq->cnt > 0) {
-                lock_q(cq);
                 uint16_t to_dequeue = (uint16_t)(cq->cnt < CUTTER_BATCH_SIZE ? cq->cnt : CUTTER_BATCH_SIZE);
                 if (batch_dequeue(cq, cq_buf, to_dequeue)) {
                     cnt = to_dequeue;
                 }
-                unlock_q(cq);
             }
             
             for (uint32_t j = 0; j < cnt; j++) {
                 task_id = cq_buf[j];
+                WORKER_LOGF("cutter", "task_id=%u", task_id);
                 idx = task_id & RING_MASK;
                 task_state st = atomic_load_explicit(&g_state_buf[idx], memory_order_relaxed);
                 succ_cnt = (uint16_t)st.successor_cnt;
@@ -57,18 +56,16 @@ void *cutter_worker(void *arg)
                 task_type_t type = g_basic_buf[task_id & RING_MASK].type;
                 int target_ctrl = task_id & (uint16_t)0x1;
                 queue_t *rq = &g_ctrl_t[target_ctrl].ready_queue[type];
+                WORKER_LOGF("cutter", "%d,%d,%u,to_rq,%d", tid, i, task_id, type);
                 lock_q(rq);
                 enqueue(rq, task_id);
                 unlock_q(rq);
             }
             
-            if (cnt > 0 || ready_cnt > 0) {
-                WORKER_LOGF("cutter", "tid=%d ctrl=%d dequeued=%u ready=%u", tid, i, cnt, ready_cnt);
-            }
         }
         spin_wait();
     }
     
-    WORKER_LOGF("cutter", "worker %d finished", tid);
+    WORKER_LOGF("cutter", "worker %d finished %d", tid, 0);
     return NULL;
 }

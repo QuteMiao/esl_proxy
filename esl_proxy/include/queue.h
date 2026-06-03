@@ -21,25 +21,37 @@ typedef struct queue {
     atomic_flag lock;
 } queue_t;
 
+// Forward declarations for lock/unlock functions
+static inline void lock_q(queue_t *queue);
+static inline void unlock_q(queue_t *queue);
+
 // TODO: atomic protect
 static inline bool batch_dequeue(queue_t *queue, uint16_t *item, uint16_t n)
 {
-    if (queue->cnt < n)
+    lock_q(queue);
+    if (queue->cnt < n) {
+        unlock_q(queue);
         return false;
+    }
     memcpy(item, &queue->tasks[queue->tail], n * sizeof(uint16_t));
     queue->tail += n;
     queue->cnt -= n;
+    unlock_q(queue);
     return true;
 }
 
 // TODO: RING LOOP
 static inline bool batch_enqueue(queue_t *queue, uint16_t *item, uint16_t n)
 {
-    if ((RING_SIZE - queue->cnt) < n)
+    lock_q(queue);
+    if ((RING_SIZE - queue->cnt) < n) {
+        unlock_q(queue);
         return false;
+    }
     memcpy(&queue->tasks[queue->tail], item, n * sizeof(uint16_t));
     queue->tail += n;
     queue->cnt += n;
+    unlock_q(queue);
     return true;
 }
 
@@ -61,8 +73,6 @@ static inline bool enqueue(queue_t *queue, uint16_t item)
     queue->tasks[queue->tail] = item;
     queue->tail++;
     queue->cnt++;
-    WORKER_LOGF("queue", "enqueue item=%d cnt=%lu tail=%lu RING_SIZE=%d",
-                item, (unsigned long)queue->cnt, (unsigned long)queue->tail, RING_SIZE);
     return true;
 }
 

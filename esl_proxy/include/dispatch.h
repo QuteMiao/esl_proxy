@@ -33,5 +33,6 @@ typedef struct ctrl {
 } ctrl_t;
 
 void *dispatch_worker(void *arg);
+void init_ctrl_t(void);
 
 #endif /* DISPATCH_H */

@@ -53,13 +53,16 @@ int main(void) {
 
 #if WORKER_LOG
     const char *log_env = getenv("WORKER_LOG");
-    if (log_env != NULL && log_env[0] == '1')
+    if (log_env != NULL && log_env[0] == '1') {
         g_worker_log = 1;
+        log_init("cutter.log");
+    }
 #endif
 
     mem_pool_init(&g_mem_pool, g_mem_pool_storage, sizeof g_mem_pool_storage);
     mem_pool_init_fifo(&g_mem_pool, g_when2free_entries, WHEN2FREE_CAP);
     ring_buf_init();
+    init_ctrl_t();
     executor_init();
 
     pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
@@ -140,6 +143,10 @@ int main(void) {
         pthread_join(dispatch_threads[i], NULL);
     }
     pthread_join(manager_thread, NULL);
+
+#if WORKER_LOG
+    log_close();
+#endif
 
     return 0;
 }

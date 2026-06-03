@@ -16,7 +16,7 @@ void *manager_worker(void *arg)
 {
     mem_pool_t *pool = (mem_pool_t *)arg;
 
-    WORKER_LOGF("manager", "started pool=%p", (void *)pool);
+    WORKER_LOGF("manager", "started pool=%p %d", (void *)pool, 0);
     return NULL;
     while (1) {
         mem_pool_process_when2free(pool);
