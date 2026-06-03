@@ -111,10 +111,15 @@ static inline int send_task(ctrl_t *ctrl, int type)
     return sent;
 }
 
-void dispatch(int tid)
+int dispatch(int tid)
 {
+    int total_sent = 0;
     get_free_exe(tid);
     set_completed(tid);
+    total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
+    total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
+    total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);
+    return total_sent;
 }
 
 /*
@@ -130,18 +135,17 @@ void *dispatch_worker(void *arg)
     int loop_cnt = 0;
     int total_sent = 0;
     while (g_completed_cnt < g_task_id) {
-        total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
-        total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
-        total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);
+        total_sent += dispatch(tid);
         loop_cnt++;
         // Debug: log every 100 iterations to track progress
         if (loop_cnt % 100 == 0) {
-            WORKER_LOGF("dispatch", "tid=%d loop=%d g_completed_cnt=%d g_task_id=%d ready_queue cnt mix=%d vector=%d cube=%d",
-                        tid, loop_cnt, g_completed_cnt, g_task_id,
+            WORKER_LOGF("dispatch", "tid=%d send=%d g_completed_cnt=%d g_task_id=%d ready_queue cnt mix=%d vector=%d cube=%d",
+                        tid, total_sent, g_completed_cnt, g_task_id,
                         (int)g_ctrl_t[tid].ready_queue[TASK_TYPE_MIX].cnt,
                         (int)g_ctrl_t[tid].ready_queue[TASK_TYPE_VECTOR].cnt,
                         (int)g_ctrl_t[tid].ready_queue[TASK_TYPE_CUBE].cnt);
         }
+
     }
     WORKER_LOGF("dispatch", "worker %d finished, total_loops=%d total_sent=%d g_task_id=%d", tid, loop_cnt, total_sent, g_task_id);
     return NULL;
