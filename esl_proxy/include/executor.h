@@ -29,6 +29,11 @@ typedef struct executor {
 } executor_t;
 
 /*
+ * executor_init - Initialize all executors
+ */
+void executor_init(void);
+
+/*
  * executor_worker - Worker thread for executor timing
  */
 void* executor_worker(void *arg);

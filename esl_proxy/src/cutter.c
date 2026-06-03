@@ -6,7 +6,7 @@
 
 extern atomic_int g_task_id;
 extern atomic_int g_completed_cnt;
-extern ctrl_t g_ctrl_t[THREAD_CNT];
+extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
 void *cutter_worker(void *arg)
 {
@@ -15,7 +15,7 @@ void *cutter_worker(void *arg)
     
     while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id)) {
         // 从所有 ctrl 的 completed_queue 取任务处理依赖
-        for (int i = 0; i < THREAD_CNT; i++) {
+        for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
             uint16_t cq_buf[CUTTER_BATCH_SIZE];
             uint16_t rq_buf[AIC_CNT];
             uint16_t task_id;
@@ -26,10 +26,12 @@ void *cutter_worker(void *arg)
 
             queue_t *cq = &g_ctrl_t[i].completed_queue;
             uint16_t cnt = 0;
-            if (cq->cnt >= AIC_CNT) {
+            // Process any available completed tasks (dequeue up to CUTTER_BATCH_SIZE at a time)
+            if (cq->cnt > 0) {
                 lock_q(cq);
-                if (batch_dequeue(cq, cq_buf, AIC_CNT)) {
-                    cnt = AIC_CNT;
+                uint16_t to_dequeue = (uint16_t)(cq->cnt < CUTTER_BATCH_SIZE ? cq->cnt : CUTTER_BATCH_SIZE);
+                if (batch_dequeue(cq, cq_buf, to_dequeue)) {
+                    cnt = to_dequeue;
                 }
                 unlock_q(cq);
             }
@@ -49,11 +51,12 @@ void *cutter_worker(void *arg)
                 }
             }
             
-            // 将ready的任务分发到对应类型的ready_queue
+            // 将ready的任务分发到对应类型的ready_queue (归属的ctrl: task_id & 1)
             for (uint16_t j = 0; j < ready_cnt; j++) {
                 task_id = rq_buf[j];
                 task_type_t type = g_basic_buf[task_id & RING_MASK].type;
-                queue_t *rq = &g_ctrl_t[tid].ready_queue[type];
+                int target_ctrl = task_id & (uint16_t)0x1;
+                queue_t *rq = &g_ctrl_t[target_ctrl].ready_queue[type];
                 lock_q(rq);
                 enqueue(rq, task_id);
                 unlock_q(rq);

@@ -84,7 +84,7 @@ extern struct task_desc g_basic_buf[RING_SIZE];
 extern _Atomic uint16_t g_predecessor_buf[RING_SIZE];
 extern struct succ_list g_successor_buf[RING_SIZE];
 extern struct succ_list g_successor_exp_buf[HALF_RING_SIZE];
-extern ctrl_t g_ctrl_t[THREAD_CNT];
+extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
 static inline void ring_buf_init(void)
 {
@@ -191,7 +191,8 @@ static inline void batch_submit(uint16_t cnt, uint16_t task_id[])
     for (int i = 0; i < cnt; i++) {
         if (tmp[i] == 1) {
             uint16_t type = g_basic_buf[task_id[i] & RING_MASK].type;
-            queue_t* queue = &g_ctrl_t[g_task_id & (uint16_t)0x1].ready_queue[type];
+            int ctrl_id = task_id[i] & (uint16_t)0x1;
+            queue_t* queue = &g_ctrl_t[ctrl_id].ready_queue[type];
             lock_q(queue);
             enqueue(queue, task_id[i]);
             unlock_q(queue);
@@ -203,9 +204,14 @@ static inline void submit(uint16_t task_id)
 {
     uint16_t tmp = (uint16_t)atomic_fetch_sub_explicit(
         &g_predecessor_buf[task_id & RING_MASK], 1, memory_order_relaxed);
-    if (tmp == 1)
-        ready_enqueue(g_basic_buf[task_id & RING_MASK].type,
-                      g_basic_buf[task_id & RING_MASK].mode, task_id);
+    if (tmp == 1) {
+        uint16_t type = g_basic_buf[task_id & RING_MASK].type;
+        int ctrl_id = task_id & (uint16_t)0x1;
+        queue_t* queue = &g_ctrl_t[ctrl_id].ready_queue[type];
+        lock_q(queue);
+        enqueue(queue, task_id);
+        unlock_q(queue);
+    }
 }
 
 static inline bool succeed(uint16_t task_id, uint16_t target)
@@ -238,6 +244,10 @@ static inline bool succeed(uint16_t task_id, uint16_t target)
 
 static inline bool try_new_task(uint32_t task_id)
 {
+    // Initialize predecessor count to 0 before marking task as PENDING
+    // This ensures tasks with no predecessors can be submitted immediately
+    atomic_store_explicit(&g_predecessor_buf[task_id & RING_MASK], 0, memory_order_relaxed);
+    
     task_state expected;
     expected.state = EMPTY;
     expected.successor_cnt = 0;

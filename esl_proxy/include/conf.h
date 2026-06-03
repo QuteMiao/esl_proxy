@@ -6,17 +6,15 @@
 #define HALF_RING_SIZE 2048
 
 #define SUCC_NODE_CNT 64
-#define THREAD_CNT 2
 
 #define AIC_OSTD 2
 #define AIC_CNT 60
 #define EXE_TYPE_CNT 2
 
 #define CUTTER_BATCH_SIZE 64
-#define CUTTER_THREAD_CNT 2
 
-#define DISPATCH_THREAD_CNT 2
-
+#define CUTTER_THREAD_CNT 1
+#define DISPATCH_THREAD_CNT 1
 #define EXECUTOR_THREAD_CNT 1
 
 /* 1: compile in worker logs; toggle at runtime via g_worker_log or WORKER_LOG env */

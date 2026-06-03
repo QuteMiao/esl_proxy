@@ -45,10 +45,11 @@ static inline bool batch_enqueue(queue_t *queue, uint16_t *item, uint16_t n)
 
 static inline bool dequeue(queue_t *queue, uint16_t* item)
 {
-    if (queue->cnt > 0)
+    if (queue->cnt < 1)
         return false;
     *item = queue->tasks[queue->head];
     queue->head++;
+    queue->cnt--;
     return true;
 }
 

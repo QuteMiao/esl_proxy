@@ -60,6 +60,7 @@ int main(void) {
     mem_pool_init(&g_mem_pool, g_mem_pool_storage, sizeof g_mem_pool_storage);
     mem_pool_init_fifo(&g_mem_pool, g_when2free_entries, WHEN2FREE_CAP);
     ring_buf_init();
+    executor_init();
 
     pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
 

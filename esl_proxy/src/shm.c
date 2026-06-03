@@ -23,4 +23,4 @@ uint16_t g_task_id_buf[RING_SIZE];
 executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
 atomic_flag g_lock_buf[RING_SIZE];
 mem_pool_t g_mem_pool;
-ctrl_t g_ctrl_t[THREAD_CNT];
+ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];

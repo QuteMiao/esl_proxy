@@ -49,7 +49,7 @@
 
 extern atomic_int g_task_id;
 extern atomic_int g_completed_cnt;
-extern ctrl_t g_ctrl_t[THREAD_CNT];
+extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
 // SPMD / execution-unit tagging helpers. Self-contained (poke g_basic_buf directly)
 // so they do not require any change to ring_buf.h.
