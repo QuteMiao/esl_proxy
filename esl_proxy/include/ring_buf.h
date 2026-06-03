@@ -16,64 +16,16 @@
 #include "conf.h"
 #include "mpmc_queue.h"
 #include "task.h"
+#include "queue.h"
+#include "dispatch.h"
+#include "spin.h"
 
 typedef enum {
     BFLOAT16 = 2,
     FLOAT32  = 4,
 } dtype_t;
 
-#if defined(USE_TENSORMAP) && !defined(TENSORMAP_WHOLE_BUFFER)
-typedef struct {
-    uint64_t base;
-    uint32_t storage[2];
-    uint32_t shapes[2];
-    uint32_t offsets[2];
-    uint32_t strides[2];
-    dtype_t  dtype;
-} Tensor;
-
-static inline uint64_t tensor_base(Tensor t)
-{
-    return t.base;
-}
-
-static inline Tensor tensor_from_base(uint64_t base)
-{
-    Tensor t;
-    t.base = base;
-    t.storage[0] = t.storage[1] = 0;
-    t.shapes[0] = t.shapes[1] = 0;
-    t.offsets[0] = t.offsets[1] = 0;
-    t.strides[0] = t.strides[1] = 0;
-    t.dtype = (dtype_t)0;
-    return t;
-}
-
-static inline Tensor tensor_make_2d(uint64_t base, uint32_t d0, uint32_t d1, dtype_t dtype)
-{
-    Tensor t;
-    t.base = base;
-    t.storage[0] = t.shapes[0] = d0;
-    t.storage[1] = t.shapes[1] = d1;
-    t.offsets[0] = 0;
-    t.offsets[1] = 0;
-    t.strides[0] = d1;
-    t.strides[1] = 1;
-    t.dtype = dtype;
-    return t;
-}
-
-static inline Tensor tensor_view(Tensor t, uint32_t row0, uint32_t nrows)
-{
-    t.offsets[0] += row0;
-    t.shapes[0] = nrows;
-    return t;
-}
-#else
-#define Tensor uint64_t
-#endif
-
-extern uint16_t g_task_id;
+extern atomic_int g_task_id;
 extern uint16_t g_min_uncomplete_task;
 extern _Atomic task_state g_state_buf[RING_SIZE];
 extern atomic_flag g_lock_buf[RING_SIZE];
@@ -81,6 +33,7 @@ extern struct task_desc g_basic_buf[RING_SIZE];
 extern _Atomic uint16_t g_predecessor_buf[RING_SIZE];
 extern struct succ_list g_successor_buf[RING_SIZE];
 extern struct succ_list g_successor_exp_buf[HALF_RING_SIZE];
+extern ctrl_t g_ctrl_t[THREAD_CNT];
 
 static inline void ring_buf_init(void)
 {
@@ -90,11 +43,6 @@ static inline void ring_buf_init(void)
     for (size_t i = 0; i < HALF_RING_SIZE; i++) {
         g_successor_exp_buf[i].next = NULL;
     }
-}
-
-static inline void spin_wait(void)
-{
-    atomic_thread_fence(memory_order_seq_cst);
 }
 
 static inline void add_input(uint16_t task_id, Tensor t)
@@ -190,9 +138,13 @@ static inline void batch_submit(uint16_t cnt, uint16_t task_id[])
     }
 
     for (int i = 0; i < cnt; i++) {
-        if (tmp[i] == 1)
-            ready_enqueue(g_basic_buf[task_id[i] & RING_MASK].type,
-                          g_basic_buf[task_id[i] & RING_MASK].mode, task_id[i]);
+        if (tmp[i] == 1) {
+            uint16_t type = g_basic_buf[task_id[i] & RING_MASK].type;
+            queue_t* queue = &g_ctrl_t[g_task_id & (uint16_t)0x1].ready_queue[type];
+            lock_q(queue);
+            enqueue(queue, task_id[i]);
+            unlock_q(queue);
+        }
     }
 }
 

@@ -18,6 +18,7 @@
 #include "task.h"
 #include "queue.h"
 
+
 typedef struct ctrl {
     // 64CORES
     uint64_t free_bitmap[TASK_TYPE_CNT][AIC_OSTD];
@@ -26,7 +27,6 @@ typedef struct ctrl {
     uint16_t task_id_map1[EXE_TYPE_CNT][AIC_CNT];
     uint16_t task_id_map2[EXE_TYPE_CNT][AIC_CNT];
 
-    uint16_t ready_cnt[TASK_TYPE_CNT];
     queue_t  ready_queue[TASK_TYPE_CNT];
     queue_t  completed_queue;
     uint16_t tid;

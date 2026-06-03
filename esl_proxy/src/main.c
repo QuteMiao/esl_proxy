@@ -127,5 +127,18 @@ int main(void) {
             tm_hdr(&g_tm_deps)->free_num, tm_hdr(&g_tm_deps)->cfg.pool_size);
 #endif
 #endif
+
+    /* Wait for all worker threads to finish */
+    for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
+        pthread_join(executor_threads[i], NULL);
+    }
+    for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
+        pthread_join(cutter_threads[i], NULL);
+    }
+    for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
+        pthread_join(dispatch_threads[i], NULL);
+    }
+    pthread_join(manager_thread, NULL);
+
     return 0;
 }

@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-extern atomic_int g_task_cnt;
+extern atomic_int g_task_id;
 extern atomic_int g_completed_cnt;
 extern ctrl_t g_ctrl_t[THREAD_CNT];
 
@@ -36,7 +36,7 @@ static inline void dispatch_init(int tid)
     set_mix(tid);
 }
 
-static inline void update_exe_state(int tid)
+static inline void get_free_exe(int tid)
 {
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
         for (int j = 0; j < AIC_OSTD; j++) {
@@ -51,6 +51,7 @@ static inline void get_completed(uint64_t free_bitmap, uint16_t task_id[], int *
 {
     int cnt = __builtin_popcountll(free_bitmap);
     while (cnt > 0) {
+        // 从二进制最最右边开始向高位看，连续的 0 的个数。
         uint64_t idx = (uint64_t)__builtin_ctzll(free_bitmap);
         task_id[(*complete_cnt)++] = task_id_map[idx];
         cnt--;
@@ -83,11 +84,11 @@ static inline void set_completed(int tid)
 }
 
 // TODO: Work Stealing
-static inline void send_task(ctrl_t *ctrl, int type)
+static inline int send_task(ctrl_t *ctrl, int type)
 {
     uint64_t free_bitmap = ctrl->free_bitmap[type][0] & ctrl->free_bitmap[type][1];
     int free_cnt = __builtin_popcountll(free_bitmap);
-    int cnt = free_cnt > (int)ctrl->ready_cnt[type] ? (int)ctrl->ready_cnt[type] : free_cnt;
+    int cnt = free_cnt > (int)ctrl->ready_queue[type].cnt ? (int)ctrl->ready_queue[type].cnt : free_cnt;
     int sent = cnt;
     uint16_t task_id;
     uint16_t head = (uint16_t)ctrl->ready_queue[type].head;
@@ -107,18 +108,13 @@ static inline void send_task(ctrl_t *ctrl, int type)
         cnt--;
         free_bitmap &= free_bitmap - 1;
     }
-    if (sent > 0) {
-        WORKER_LOGF("dispatch", "tid=%d type=%d sent=%d", ctrl->tid, type, sent);
-    }
+    return sent;
 }
 
 void dispatch(int tid)
 {
-    update_exe_state(tid);
+    get_free_exe(tid);
     set_completed(tid);
-    send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
-    send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
-    send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);
 }
 
 /*
@@ -129,10 +125,24 @@ void *dispatch_worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
     dispatch_init(tid);
-    WORKER_LOGF("dispatch", "worker %d started", tid);
-    return NULL;
-    while (1) {
-        dispatch(tid);
+    WORKER_LOGF("dispatch", "worker %d started, g_completed_cnt %d, g_task_id %d", tid, g_completed_cnt, g_task_id);
+
+    int loop_cnt = 0;
+    int total_sent = 0;
+    while (g_completed_cnt < g_task_id) {
+        total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
+        total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
+        total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);
+        loop_cnt++;
+        // Debug: log every 100 iterations to track progress
+        if (loop_cnt % 100 == 0) {
+            WORKER_LOGF("dispatch", "tid=%d loop=%d g_completed_cnt=%d g_task_id=%d ready_queue cnt mix=%d vector=%d cube=%d",
+                        tid, loop_cnt, g_completed_cnt, g_task_id,
+                        (int)g_ctrl_t[tid].ready_queue[TASK_TYPE_MIX].cnt,
+                        (int)g_ctrl_t[tid].ready_queue[TASK_TYPE_VECTOR].cnt,
+                        (int)g_ctrl_t[tid].ready_queue[TASK_TYPE_CUBE].cnt);
+        }
     }
+    WORKER_LOGF("dispatch", "worker %d finished, total_loops=%d total_sent=%d g_task_id=%d", tid, loop_cnt, total_sent, g_task_id);
     return NULL;
 }

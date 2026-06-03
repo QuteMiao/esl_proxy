@@ -10,10 +10,9 @@
 #include "conf.h"
 #include "dispatch.h"
 
-uint16_t g_task_id = 0;
+atomic_int g_task_id = 0;
 uint16_t g_min_uncomplete_task = 0;
-atomic_int g_task_cnt;
-atomic_int g_completed_cnt;
+atomic_int g_completed_cnt = -1;
 
 _Atomic task_state g_state_buf[RING_SIZE];
 _Atomic uint16_t g_predecessor_buf[RING_SIZE];

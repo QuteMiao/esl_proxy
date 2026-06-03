@@ -45,6 +45,11 @@
 
 #include "mem_pool.h"
 #include "ring_buf.h"
+#include "dispatch.h"
+
+extern atomic_int g_task_id;
+extern atomic_int g_completed_cnt;
+extern ctrl_t g_ctrl_t[THREAD_CNT];
 
 // SPMD / execution-unit tagging helpers. Self-contained (poke g_basic_buf directly)
 // so they do not require any change to ring_buf.h.
@@ -132,6 +137,10 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         add_scalar(g_task_id, cur_valid);
         add_duration(g_task_id, 23950);
         const uint16_t rmsnorm_id = g_task_id;
+        queue_t* queue = &g_ctrl_t[g_task_id & (uint16_t)0x1].ready_queue[TASK_TYPE_VECTOR];
+        lock_q(queue);
+        enqueue(queue, rmsnorm_id);
+        unlock_q(queue);
 
         // Spmd q_proj (AIC, block_num 20): HIDDEN / Q_OUT_CHUNK = 5120/256 = 20
         g_task_id++;
@@ -480,4 +489,5 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         succeed(g_task_id, out_proj_mixed_id);
         submit(g_task_id);
     }
+    g_completed_cnt++;
 }
