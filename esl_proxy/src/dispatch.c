@@ -48,16 +48,16 @@ static inline void get_free_exe(int tid)
     set_mix(tid);
 }
 
-static inline void get_completed(uint64_t bitmap, uint16_t task_id[], int *complete_cnt,
+static inline void get_completed(uint64_t* bitmap, uint16_t task_id[], int *complete_cnt,
                                  const uint16_t task_id_map[])
 {
-    int cnt = __builtin_popcountll(bitmap);
+    int cnt = __builtin_popcountll(*bitmap);
     while (cnt > 0) {
         // 从二进制最最右边开始向高位看，连续的 0 的个数。
-        uint64_t idx = (uint64_t)__builtin_ctzll(bitmap);
+        uint64_t idx = (uint64_t)__builtin_ctzll(*bitmap);
         task_id[(*complete_cnt)++] = task_id_map[idx];
         cnt--;
-        bitmap &= bitmap - 1;
+        *bitmap &= *bitmap - 1;
     }
 }
 
@@ -67,9 +67,9 @@ static inline void set_completed(int tid)
     uint16_t task_id[240];
     int complete_cnt = 0;
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
-        get_completed(g_ctrl_t[tid].msg_bitmap[i][0], task_id, &complete_cnt,
+        get_completed(&g_ctrl_t[tid].msg_bitmap[i][0], task_id, &complete_cnt,
                       g_ctrl_t[tid].task_id_map1[i]);
-        get_completed(g_ctrl_t[tid].msg_bitmap[i][1], task_id, &complete_cnt,
+        get_completed(&g_ctrl_t[tid].msg_bitmap[i][1], task_id, &complete_cnt,
                       g_ctrl_t[tid].task_id_map2[i]);
     }
     for (int i = 0; i < complete_cnt; i++) {

@@ -26,16 +26,17 @@ static inline void lock_q(queue_t *queue);
 static inline void unlock_q(queue_t *queue);
 
 // TODO: atomic protect
-static inline bool batch_dequeue(queue_t *queue, uint16_t *item, uint16_t n)
+static inline bool batch_dequeue(queue_t *queue, uint16_t *item, uint16_t *n)
 {
     lock_q(queue);
-    if (queue->cnt < n) {
+    *n = (uint16_t)(queue->cnt < *n ? queue->cnt : *n);
+    if (*n == 0) {
         unlock_q(queue);
         return false;
     }
-    memcpy(item, &queue->tasks[queue->tail], n * sizeof(uint16_t));
-    queue->tail += n;
-    queue->cnt -= n;
+    memcpy(item, &queue->tasks[queue->tail], *n * sizeof(uint16_t));
+    queue->tail += *n;
+    queue->cnt -= *n;
     unlock_q(queue);
     return true;
 }

@@ -25,14 +25,12 @@ void *cutter_worker(void *arg)
             uint16_t ready_cnt = 0;
 
             queue_t *cq = &g_ctrl_t[i].completed_queue;
-            uint16_t cnt = 0;
+            uint16_t cnt = CUTTER_BATCH_SIZE;
             // Process any available completed tasks (dequeue up to CUTTER_BATCH_SIZE at a time)
-            if (cq->cnt > 0) {
-                uint16_t to_dequeue = (uint16_t)(cq->cnt < CUTTER_BATCH_SIZE ? cq->cnt : CUTTER_BATCH_SIZE);
-                if (batch_dequeue(cq, cq_buf, to_dequeue)) {
-                    cnt = to_dequeue;
-                }
-            }
+            if (cq->cnt > 0) 
+                batch_dequeue(cq, cq_buf, &cnt);
+            else
+                continue;
             
             for (uint32_t j = 0; j < cnt; j++) {
                 task_id = cq_buf[j];
