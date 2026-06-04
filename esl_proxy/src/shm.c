@@ -24,7 +24,7 @@ executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
 atomic_flag g_lock_buf[RING_SIZE];
 mem_pool_t g_mem_pool;
 ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
-
+atomic_bool g_is_done = false;
 void init_ctrl_t(void)
 {
     for (int tid = 0; tid < DISPATCH_THREAD_CNT; tid++) {

@@ -371,7 +371,8 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         {
             spin_wait();
         }
-        set_task_type(g_task_id, TASK_TYPE_MIX);
+        // set_task_type(g_task_id, TASK_TYPE_MIX);
+        set_task_type(g_task_id, TASK_TYPE_CUBE);
         set_block_num(g_task_id, 40);
         add_input(g_task_id, ext_hidden_states);
         add_input(g_task_id, attn_out);

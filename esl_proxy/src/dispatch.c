@@ -13,6 +13,7 @@
 
 extern atomic_int g_task_id;
 extern atomic_int g_completed_cnt;
+extern _Atomic bool g_is_done;
 extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 extern struct task_desc g_basic_buf[RING_SIZE];
 extern executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
@@ -56,7 +57,7 @@ static inline void get_completed(uint64_t* bitmap, uint16_t task_id[], int *comp
         // 从二进制最最右边开始向高位看，连续的 0 的个数。
         uint64_t idx = (uint64_t)__builtin_ctzll(*bitmap);
         task_id[(*complete_cnt)++] = task_id_map[idx];
-        WORKER_LOGF("completed task_id,%u,core,%d,bitmap,%d", task_id_map[idx], idx, *bitmap);
+        WORKER_LOGF("completed,task_id,%u,core,%d,bitmap,%u", task_id_map[idx], idx, *bitmap);
         cnt--;
         *bitmap &= (*bitmap - 1);
     }
@@ -118,7 +119,7 @@ static inline int send_task(ctrl_t *ctrl, int type)
         ctrl->free_bitmap[type][slot] &= ~mask;
         // Fake Return
         ctrl->msg_bitmap[type][slot] |= mask;
-        WORKER_LOGF("task_id,%u,core,%d,slot,%d,type,%d", task_id, core, slot, type);
+        WORKER_LOGF("send,task_id,%u,core,%d,slot,%d,type,%d", task_id, core, slot, type);
         sent++;
         free_bitmap &= ~mask;
     }
@@ -147,9 +148,11 @@ void *dispatch_worker(void *arg)
 
     int loop_cnt = 0;
     int total_sent = 0;
-    while (g_completed_cnt < g_task_id) {
+    while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id)) {
         total_sent += dispatch(tid);
+        // WORKER_LOGF("worker %d,total_sent,%d total,%d", tid, total_sent, g_task_id);
     }
-    WORKER_LOGF("worker %d finished, total_loops=%d total_sent=%d g_task_id=%d", tid, loop_cnt, total_sent, g_task_id);
+    g_is_done = true;
+    WORKER_LOGF("worker,%d,total_sent,%d total,%d", tid, total_sent, g_task_id);
     return NULL;
 }

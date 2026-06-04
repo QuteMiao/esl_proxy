@@ -3,6 +3,11 @@
 #include <string.h>
 #include <pthread.h>
 
+// Shared resources needed for WORKER_LOG only
+#if WORKER_LOG
+static pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
 #if WORKER_LOG
 int g_worker_log = 0;
 int g_log_output_mode = LOG_OUTPUT_MODE;  // runtime override
@@ -12,7 +17,6 @@ static FILE *g_log_files[LOG_MAX_THREADS] = {NULL};
 static uint64_t g_log_lines[LOG_MAX_THREADS] = {0};
 static char g_log_filenames[LOG_MAX_THREADS][256] = {0};
 static pthread_t g_thread_ids[LOG_MAX_THREADS] = {0};  // Track which pthread_t owns each slot
-static pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char g_base_filename[256] = {0};
 static unsigned int g_next_slot = 0;  // Next available slot for new thread
 static FILE *g_main_log_file = NULL;  // Main thread log file
@@ -157,30 +161,19 @@ void log_close(void)
     
     pthread_mutex_unlock(&g_log_mutex);
 }
+#endif
 
+#if MAIN_LOG
 void main_log_write(int line, const char *fmt, ...)
 {
-    pthread_mutex_lock(&g_log_mutex);
-    
     va_list args;
     va_start(args, fmt);
     
-    // Output to file
-    if (g_main_log_file) {
-        fprintf(g_main_log_file, "%d,", line);
-        vfprintf(g_main_log_file, fmt, args);
-        fprintf(g_main_log_file, "\n");
-    }
-    
-    // Output to stdout (respecting output mode)
-    if (g_log_output_mode != 0) {
-        fprintf(stdout, "[main:%d] ", line);
-        vfprintf(stdout, fmt, args);
-        fprintf(stdout, "\n");
-    }
+    // Output to stdout only
+    fprintf(stdout, "[main:%d] ", line);
+    vfprintf(stdout, fmt, args);
+    fprintf(stdout, "\n");
     
     va_end(args);
-    
-    pthread_mutex_unlock(&g_log_mutex);
 }
 #endif
