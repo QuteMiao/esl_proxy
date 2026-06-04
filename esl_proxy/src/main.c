@@ -55,7 +55,14 @@ int main(void) {
     const char *log_env = getenv("WORKER_LOG");
     if (log_env != NULL && log_env[0] == '1') {
         g_worker_log = 1;
-        log_init("cutter.log");
+        
+        // Check LOG_OUTPUT_MODE env var (0=file, 1=stdout, 2=both)
+        const char *output_env = getenv("LOG_OUTPUT_MODE");
+        if (output_env != NULL) {
+            g_log_output_mode = atoi(output_env);
+        }
+        
+        log_init("pto.");
     }
 #endif
 
@@ -64,7 +71,7 @@ int main(void) {
     ring_buf_init();
     init_ctrl_t();
     executor_init();
-
+    fprintf(stderr, "[orchestration] init done\n");
     pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
 
     for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
@@ -81,16 +88,13 @@ int main(void) {
         pthread_create(&executor_threads[i], NULL, executor_worker,
                        (void *)(intptr_t)i);
     }
-
+    fprintf(stderr, "[orchestration] thread created\n");
 #if ORCHESTRATION_TIME
     uint64_t start_ns = get_time_ns();
     aicpu_orchestration_entry(0);
     uint64_t end_ns = get_time_ns();
     uint64_t elapsed_ns = end_ns - start_ns;
 
-    /* Subtask count: an SPMD task expands into block_num (count) subtasks; every
-     * non-SPMD task is a single subtask. Computed after orchestration so it does
-     * not count toward elapsed_time. */
     uint64_t subtask_cnt = 0;
     for (uint32_t i = 1; i <= g_task_id; i++) {
         const struct task_desc *t = &g_basic_buf[i & RING_MASK];
@@ -113,10 +117,6 @@ int main(void) {
     aicpu_orchestration_entry(0);
 #endif
 
-    fprintf(stderr, "[mem_pool] allocated=%zu MiB, available=%zu MiB (pool=%zu MiB)\n",
-            mem_pool_allocated(&g_mem_pool) / (1024UL * 1024UL),
-            mem_pool_available(&g_mem_pool) / (1024UL * 1024UL),
-            sizeof g_mem_pool_storage / (1024UL * 1024UL));
 
 #ifdef USE_TENSORMAP
 #ifndef TENSORMAP_WHOLE_BUFFER
@@ -131,8 +131,7 @@ int main(void) {
             tm_hdr(&g_tm_deps)->free_num, tm_hdr(&g_tm_deps)->cfg.pool_size);
 #endif
 #endif
-
-    /* Wait for all worker threads to finish */
+/*
     for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
         pthread_join(executor_threads[i], NULL);
     }
@@ -143,7 +142,7 @@ int main(void) {
         pthread_join(dispatch_threads[i], NULL);
     }
     pthread_join(manager_thread, NULL);
-
+*/
 #if WORKER_LOG
     log_close();
 #endif

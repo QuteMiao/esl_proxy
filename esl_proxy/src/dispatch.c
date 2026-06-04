@@ -57,7 +57,8 @@ static inline void get_completed(uint64_t* bitmap, uint16_t task_id[], int *comp
         uint64_t idx = (uint64_t)__builtin_ctzll(*bitmap);
         task_id[(*complete_cnt)++] = task_id_map[idx];
         cnt--;
-        *bitmap &= *bitmap - 1;
+        *bitmap &= (*bitmap - 1);
+        WORKER_LOGF("completed task_id,%u,core,%d", task_id_map[idx], idx);
     }
 }
 
@@ -77,7 +78,6 @@ static inline void set_completed(int tid)
         task_state s = atomic_load_explicit(&g_state_buf[slot], memory_order_relaxed);
         s.state = COMPLETED;
         atomic_store_explicit(&g_state_buf[slot], s, memory_order_release);
-        WORKER_LOGF("completed task_id=%u slot=%d", task_id[i], slot);
     }
     batch_enqueue(&g_ctrl_t[tid].completed_queue, task_id, (uint16_t)complete_cnt);
     atomic_fetch_add_explicit(&g_completed_cnt, complete_cnt, memory_order_acquire);
@@ -93,39 +93,16 @@ static inline int send_task(ctrl_t *ctrl, int type)
     if (cnt <= 0) {
         return 0;
     }
-    
-    uint16_t head = (uint16_t)ctrl->ready_queue[type].head;
-    // IMPORTANT: Store task IDs first before updating head to avoid race with enqueue
-    uint16_t task_ids[64];
-    for (int i = 0; i < cnt; i++) {
-        task_ids[i] = ctrl->ready_queue[type].tasks[head + i];
-    }
-    // Now update head AFTER tasks are safely read
-    ctrl->ready_queue[type].head = head + (uint64_t)cnt;
-    
-    // Track which slots we've already assigned in this call
-    // to avoid double-assigning the same idx to both slot0 and slot1
-    uint64_t used_slots[2] = {0, 0};
+    uint16_t task_ids[AIC_CNT];
+    batch_dequeue(&ctrl->ready_queue[type], task_ids, &cnt);
     
     int sent = 0;
     for (int i = 0; i < cnt; i++) {
         uint16_t task_id = task_ids[i];
         uint64_t idx = (uint64_t)__builtin_ctzll(free_bitmap);
-        
-        int slot;
+
         uint64_t mask = (uint64_t)0x1 << idx;
-        if ((ctrl->free_bitmap[type][0] & mask) && !(used_slots[0] & mask)) {
-            slot = 0;
-            used_slots[0] |= mask;
-        } else if ((ctrl->free_bitmap[type][1] & mask) && !(used_slots[1] & mask)) {
-            slot = 1;
-            used_slots[1] |= mask;
-        } else {
-            // This shouldn't happen if free_bitmap is calculated correctly
-            free_bitmap &= free_bitmap - 1;
-            continue;
-        }
-        
+        int slot = ctrl->free_bitmap[type][0] & mask == 1 ? 0 : 1;
         // Set executor's tasks and duration
         int core = (int)idx;
         g_executors[exe_type][core].tasks[slot] = task_id;
@@ -137,13 +114,11 @@ static inline int send_task(ctrl_t *ctrl, int type)
         } else {
             ctrl->task_id_map1[type][idx] = task_id;
         }
+        
         ctrl->free_bitmap[type][slot] &= ~mask;
-        ctrl->msg_bitmap[type][slot] &= ~mask;
-        
-        WORKER_LOGF("dispatched task_id=%u core=%d slot=%d type=%d", task_id, core, slot, type);
-        
+        WORKER_LOGF("task_id,%u,core,%d,slot,%d,type,%d", task_id, core, slot, type);
         sent++;
-        free_bitmap &= free_bitmap - 1;
+        free_bitmap &= ~mask;
     }
     return sent;
 }

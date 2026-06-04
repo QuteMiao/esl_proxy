@@ -14,6 +14,7 @@
 #include <stdbool.h>
 
 #include "conf.h"
+#include "log.h"
 #include "mpmc_queue.h"
 #include "task.h"
 #include "queue.h"
@@ -171,8 +172,7 @@ static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t targ
                 ptr = ptr->next;
             }
             ptr->successor[idx] = task_id[i];
-            atomic_fetch_add_explicit(&g_predecessor_buf[task_id[i] & RING_MASK], 1,
-                                      memory_order_relaxed);
+            atomic_fetch_add_explicit(&g_predecessor_buf[task_id[i] & RING_MASK], 1, memory_order_relaxed);
             idx++;
         }
         return true;
@@ -193,24 +193,20 @@ static inline void batch_submit(uint16_t cnt, uint16_t task_id[])
             uint16_t type = g_basic_buf[task_id[i] & RING_MASK].type;
             int ctrl_id = task_id[i] & (uint16_t)0x1;
             queue_t* queue = &g_ctrl_t[ctrl_id].ready_queue[type];
-            lock_q(queue);
             enqueue(queue, task_id[i]);
-            unlock_q(queue);
         }
     }
 }
 
 static inline void submit(uint16_t task_id)
 {
-    uint16_t tmp = (uint16_t)atomic_fetch_sub_explicit(
-        &g_predecessor_buf[task_id & RING_MASK], 1, memory_order_relaxed);
+    uint16_t tmp = (uint16_t)atomic_fetch_sub_explicit(&g_predecessor_buf[task_id & RING_MASK], 1, memory_order_relaxed);
     if (tmp == 1) {
         uint16_t type = g_basic_buf[task_id & RING_MASK].type;
         int ctrl_id = task_id & (uint16_t)0x1;
         queue_t* queue = &g_ctrl_t[ctrl_id].ready_queue[type];
-        lock_q(queue);
+        WORKER_LOGF("enqueue task_id,%u, type,%u, ctrl_id,%d", task_id, type, ctrl_id);
         enqueue(queue, task_id);
-        unlock_q(queue);
     }
 }
 
@@ -219,7 +215,6 @@ static inline bool succeed(uint16_t task_id, uint16_t target)
     if (target < g_min_uncomplete_task)
         return false;
     int slotIdx = target & RING_MASK;
-
     task_state expected = atomic_load_explicit(&g_state_buf[slotIdx], memory_order_relaxed);
     expected.state = PENDING;
 
@@ -235,8 +230,7 @@ static inline bool succeed(uint16_t task_id, uint16_t target)
             ptr = ptr->next;
         }
         ptr->successor[idx] = task_id;
-        atomic_fetch_add_explicit(&g_predecessor_buf[task_id & RING_MASK], 1,
-                                  memory_order_relaxed);
+        atomic_fetch_add_explicit(&g_predecessor_buf[task_id & RING_MASK], 1, memory_order_relaxed);
         return true;
     }
     return false;

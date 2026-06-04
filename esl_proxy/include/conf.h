@@ -20,6 +20,9 @@
 /* 1: compile in worker logs; toggle at runtime via g_worker_log or WORKER_LOG env */
 #define WORKER_LOG 1
 
+/* Log output mode: 0=file, 1=stdout, 2=both */
+#define LOG_OUTPUT_MODE 0
+
 /* 1: enable aicpu_orchestration_entry execution time logging in nanoseconds */
 #define ORCHESTRATION_TIME 1
 

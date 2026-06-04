@@ -34,8 +34,18 @@ static inline bool batch_dequeue(queue_t *queue, uint16_t *item, uint16_t *n)
         unlock_q(queue);
         return false;
     }
-    memcpy(item, &queue->tasks[queue->tail], *n * sizeof(uint16_t));
-    queue->tail += *n;
+    uint64_t head = queue->head;
+    // Handle circular buffer wrapping
+    uint64_t first_part = RING_SIZE - head;
+    if (first_part >= *n) {
+        // No wrap needed
+        memcpy(item, &queue->tasks[head], *n * sizeof(uint16_t));
+    } else {
+        // Wrap around: read from head to end, then from start
+        memcpy(item, &queue->tasks[head], first_part * sizeof(uint16_t));
+        memcpy(&item[first_part], queue->tasks, (*n - first_part) * sizeof(uint16_t));
+    }
+    queue->head = (queue->head + *n) & (RING_SIZE - 1);
     queue->cnt -= *n;
     unlock_q(queue);
     return true;
@@ -49,8 +59,17 @@ static inline bool batch_enqueue(queue_t *queue, uint16_t *item, uint16_t n)
         unlock_q(queue);
         return false;
     }
-    memcpy(&queue->tasks[queue->tail], item, n * sizeof(uint16_t));
-    queue->tail += n;
+    uint64_t tail = queue->tail;
+    uint64_t first_part = RING_SIZE - tail;
+    if (first_part >= n) {
+        // No wrap needed
+        memcpy(&queue->tasks[tail], item, n * sizeof(uint16_t));
+    } else {
+        // Wrap around
+        memcpy(&queue->tasks[tail], item, first_part * sizeof(uint16_t));
+        memcpy(queue->tasks, &item[first_part], (n - first_part) * sizeof(uint16_t));
+    }
+    queue->tail = (tail + n) & (RING_SIZE - 1);
     queue->cnt += n;
     unlock_q(queue);
     return true;
@@ -58,22 +77,30 @@ static inline bool batch_enqueue(queue_t *queue, uint16_t *item, uint16_t n)
 
 static inline bool dequeue(queue_t *queue, uint16_t* item)
 {
-    if (queue->cnt < 1)
+    lock_q(queue);
+    if (queue->cnt < 1) {
+        unlock_q(queue);
         return false;
+    }
     *item = queue->tasks[queue->head];
-    queue->head++;
+    queue->head = (queue->head + 1) & (RING_SIZE - 1);
     queue->cnt--;
+    unlock_q(queue);
     return true;
 }
 
 static inline bool enqueue(queue_t *queue, uint16_t item)
 {
-    if (queue->cnt >= RING_SIZE)
+    lock_q(queue);
+    if (queue->cnt >= RING_SIZE) {
+        unlock_q(queue);
         return false;
+    }
 
     queue->tasks[queue->tail] = item;
-    queue->tail++;
+    queue->tail = (queue->tail + 1) & (RING_SIZE - 1);
     queue->cnt++;
+    unlock_q(queue);
     return true;
 }
 
