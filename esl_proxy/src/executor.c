@@ -35,7 +35,7 @@ void executor_init(void)
 void* executor_worker(void *arg)
 {
     (void)arg;
-    WORKER_LOGF("executor", "worker started %d", 0);
+    WORKER_LOGF("worker started %d", 0);
     int total_write_cnt = 0;
     while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id))
     {
@@ -52,7 +52,7 @@ void* executor_worker(void *arg)
                         g_ctrl_t[core % DISPATCH_THREAD_CNT].msg_bitmap[exe_type][idx] |= ((uint64_t)0x1 << core);
                         g_executors[exe_type][core].idx = AIC_OSTD;
                         total_write_cnt++;
-                        WORKER_LOGF("executor", "finished, total_write_cnt=%d", total_write_cnt);
+                        WORKER_LOGF("finished, total_write_cnt=%d", total_write_cnt);
                     }
                 } else {
                     // Find a slot with positive duration to work on
@@ -67,6 +67,6 @@ void* executor_worker(void *arg)
             }
         }
     }
-    WORKER_LOGF("executor", "finished, total_write_cnt=%d g_task_id=%d", total_write_cnt, g_task_id);
+    WORKER_LOGF("finished, total_write_cnt=%d g_task_id=%d", total_write_cnt, g_task_id);
     return NULL;
 }

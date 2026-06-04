@@ -77,7 +77,7 @@ static inline void set_completed(int tid)
         task_state s = atomic_load_explicit(&g_state_buf[slot], memory_order_relaxed);
         s.state = COMPLETED;
         atomic_store_explicit(&g_state_buf[slot], s, memory_order_release);
-        WORKER_LOGF("dispatch", "completed task_id=%u slot=%d", task_id[i], slot);
+        WORKER_LOGF("completed task_id=%u slot=%d", task_id[i], slot);
     }
     batch_enqueue(&g_ctrl_t[tid].completed_queue, task_id, (uint16_t)complete_cnt);
     atomic_fetch_add_explicit(&g_completed_cnt, complete_cnt, memory_order_acquire);
@@ -140,7 +140,7 @@ static inline int send_task(ctrl_t *ctrl, int type)
         ctrl->free_bitmap[type][slot] &= ~mask;
         ctrl->msg_bitmap[type][slot] &= ~mask;
         
-        WORKER_LOGF("dispatch", "dispatched task_id=%u core=%d slot=%d type=%d", task_id, core, slot, type);
+        WORKER_LOGF("dispatched task_id=%u core=%d slot=%d type=%d", task_id, core, slot, type);
         
         sent++;
         free_bitmap &= free_bitmap - 1;
@@ -167,13 +167,13 @@ void *dispatch_worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
     dispatch_init(tid);
-    WORKER_LOGF("dispatch", "worker %d started, g_completed_cnt %d, g_task_id %d", tid, g_completed_cnt, g_task_id);
+    WORKER_LOGF("worker %d started, g_completed_cnt %d, g_task_id %d", tid, g_completed_cnt, g_task_id);
 
     int loop_cnt = 0;
     int total_sent = 0;
     while (g_completed_cnt < g_task_id) {
         total_sent += dispatch(tid);
     }
-    WORKER_LOGF("dispatch", "worker %d finished, total_loops=%d total_sent=%d g_task_id=%d", tid, loop_cnt, total_sent, g_task_id);
+    WORKER_LOGF("worker %d finished, total_loops=%d total_sent=%d g_task_id=%d", tid, loop_cnt, total_sent, g_task_id);
     return NULL;
 }

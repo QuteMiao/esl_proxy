@@ -13,7 +13,7 @@ void log_init(const char *filename)
     } else {
         g_log_line = 0;
         // Write CSV header
-        fprintf(g_log_file, "tag,source,log_line,detail\n");
+        fprintf(g_log_file, "file,line,detail\n");
     }
 }
 
