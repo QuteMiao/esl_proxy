@@ -56,7 +56,7 @@ extern "C" {
 #endif
 
 enum {
-  TM_MAX_DIMS = 5, /* per-region dimensionality cap */
+  TM_MAX_DIMS = 2, /* matches esl_proxy 2D Tensor */
   TM_MAX_RINGS = 8 /* task-id ring layers cap */
 };
 
@@ -69,11 +69,7 @@ typedef struct TmConfig {
   uint32_t task_window[TM_MAX_RINGS];
 } TmConfig;
 
-/* Region descriptor — the only input type. Replaces the project Tensor.
- *   storage_numel  : total elements in the backing buffer (reserved for
- * compatibility) elem_size      : bytes per element (stands in for dtype)
- * Overlap geometry uses per-axis [offsets[i], offsets[i] + shapes[i]).
- */
+/* Region descriptor for unit tests (2D row-major geometry). */
 typedef struct TmRegion {
   uint64_t base_addr;
   uint32_t storage_numel;
@@ -170,27 +166,18 @@ static inline uint32_t tm_local_of(uint64_t id) {
   return (uint32_t)(id & 0xFFFFFFFFu);
 }
 
-/* Overlap cascade (hyper-rectangle / conservative OTHER).
- * `in` is the probe (consumer); `e` is a stored producer entry sharing the same
- * base buffer. */
+/* Overlap cascade (2D hyper-rectangle / conservative OTHER). */
 static inline TmOverlap tm_overlap(const TmRegion *in, const TmEntry *e) {
-  /* A newer storage generation always depends on the older producer
-   * (whole-buffer mutation). */
   if (in->version > e->version)
     return TM_OVERLAP_OTHER;
-
-  /* L2 prerequisites. */
   if (in->elem_size != e->elem_size)
     return TM_OVERLAP_OTHER;
-  for (uint16_t i = 0; i < 2; i++) {
+  for (uint16_t i = 0; i < TM_MAX_DIMS; i++) {
     if (in->strides[i] != e->strides[i])
       return TM_OVERLAP_OTHER;
   }
-
-  /* L2 core — per-dim segment intersection; COVERED iff probe contains entry on
-   * every axis. */
   bool covered = true;
-  for (uint16_t i = 0; i < 2; i++) {
+  for (uint16_t i = 0; i < TM_MAX_DIMS; i++) {
     const uint64_t a0 = in->offsets[i], a1 = a0 + in->shapes[i];
     const uint64_t b0 = e->offsets[i], b1 = b0 + e->shapes[i];
     if (!(a1 > b0 && b1 > a0))
@@ -324,8 +311,11 @@ static inline void tm_init(TmTensorMap *self, void *base, const TmConfig *cfg) {
   for (uint32_t i = 0; i < cfg->num_buckets; i++)
     bk[i] = -1;
   TmEntry *pl = tm_pool(self);
-  memset(pl, 0, (uint64_t)cfg->pool_size * sizeof(TmEntry));
   for (uint32_t i = 0; i < cfg->pool_size; i++) {
+    pl[i].base_addr = 0;
+    pl[i].producer_id = 0;
+    pl[i].version = 0;
+    pl[i].elem_size = 0;
     pl[i].bucket_index = -1;
     pl[i].next_in_bucket = pl[i].prev_in_bucket = -1;
     pl[i].next_in_task = pl[i].prev_in_task = -1;
@@ -353,7 +343,7 @@ static inline void tm_insert(TmTensorMap *self, const TmRegion *r,
   e->base_addr = r->base_addr;
   e->version = r->version;
   e->elem_size = r->elem_size;
-  for (uint16_t i = 0; i < 2; i++) {
+  for (uint16_t i = 0; i < TM_MAX_DIMS; i++) {
     e->strides[i] = r->strides[i];
     e->shapes[i] = r->shapes[i];
     e->offsets[i] = r->offsets[i];
@@ -443,8 +433,8 @@ static inline int32_t tm_valid_count(const TmTensorMap *self) {
  * tm_inout / tm_submit.
  *
  * Two modes (pick one via compile flags):
- *   - Default (struct Tensor): row-range geometry via tensor_view(); immediate
- *     lookup on tm_in / insert on tm_out.  Requires USE_TENSORMAP.
+ *   - Default (struct Tensor): sub-range geometry via tensor_view(dim);
+ * immediate lookup on tm_in / insert on tm_out.  Requires USE_TENSORMAP.
  *   - TENSORMAP_WHOLE_BUFFER: whole-buffer address granularity (uint64_t
  *     Tensor); deferred batch lookup/insert at tm_submit.  Merged from the
  *     former cases/custom_tensormap.h.
@@ -574,11 +564,8 @@ static inline void tm_submit(uint16_t tid) {
 #define TMD_TASK_WINDOW 65536u /* power of two; covers every uint16 task id */
 #endif
 
-static inline uint32_t tensor_elem_size(dtype_t d) { return (uint32_t)d; }
-
 #define TMD_BUF_BYTES                                                          \
-  (sizeof(TmHeader) +                                                         \
-   (uint64_t)TMD_NUM_BUCKETS * sizeof(int32_t) +                               \
+  (sizeof(TmHeader) + (uint64_t)TMD_NUM_BUCKETS * sizeof(int32_t) +            \
    (uint64_t)TMD_POOL_SIZE * sizeof(TmEntry) +                                 \
    (uint64_t)TMD_POOL_SIZE * sizeof(int32_t) +                                 \
    (uint64_t)TMD_TASK_WINDOW * sizeof(int32_t))
@@ -586,47 +573,114 @@ static inline uint32_t tensor_elem_size(dtype_t d) { return (uint32_t)d; }
 static TmTensorMap g_tm_map;
 static _Alignas(TM_REGION_ALIGN) uint8_t g_tm_buf[TMD_BUF_BYTES];
 
+#ifndef TM_PENDING_MAX_IO
+#define TM_PENDING_MAX_IO 16u
+#endif
+#ifndef TM_PENDING_MAX_PRED
+#define TM_PENDING_MAX_PRED 32u
+#endif
+
+enum {
+  TM_PEND_IN = 1u,
+  TM_PEND_OUT = 2u,
+  TM_PEND_INOUT = (TM_PEND_IN | TM_PEND_OUT)
+};
+
+typedef struct {
+  const Tensor *t;
+  uint8_t kind; /* TM_PEND_IN | TM_PEND_OUT | TM_PEND_INOUT */
+} TmPendingSlot;
+
+static TmPendingSlot g_tm_pend[TM_PENDING_MAX_IO];
+static int g_tm_pend_n;
+
+static inline void tm_pending_clear(void) { g_tm_pend_n = 0; }
+
+/* Overlap using Tensor fields directly (no TmRegion / memset on hot path). */
+static inline TmOverlap tm_overlap_tensor(const Tensor *in, const TmEntry *e) {
+  if ((uint16_t)in->dtype != e->elem_size)
+    return TM_OVERLAP_OTHER;
+  for (uint16_t i = 0; i < TM_MAX_DIMS; i++) {
+    if (in->strides[i] != (uint32_t)e->strides[i])
+      return TM_OVERLAP_OTHER;
+  }
+  bool covered = true;
+  for (uint16_t i = 0; i < TM_MAX_DIMS; i++) {
+    const uint64_t a0 = in->offsets[i], a1 = a0 + in->shapes[i];
+    const uint64_t b0 = e->offsets[i], b1 = b0 + e->shapes[i];
+    if (!(a1 > b0 && b1 > a0))
+      return TM_OVERLAP_NONE;
+    if (!(a0 <= b0 && b1 <= a1))
+      covered = false;
+  }
+  return covered ? TM_OVERLAP_COVERED : TM_OVERLAP_OTHER;
+}
+
 typedef struct {
   uint16_t consumer;
+  uint16_t preds[TM_PENDING_MAX_PRED];
+  int pn;
   bool is_inout;
-} TmGeoMatchCtx;
+} TmCollectCtx;
 
-static inline bool tm_geo_on_match(TmEntry *e, TmOverlap st, void *ctx) {
-  TmGeoMatchCtx *c = (TmGeoMatchCtx *)ctx;
-  const uint16_t producer = (uint16_t)tm_local_of(e->producer_id);
-  if (producer != c->consumer)
-    succeed(c->consumer, producer);
+static inline bool tm_collect_on_match(TmEntry *e, TmOverlap st, void *ctx) {
+  TmCollectCtx *c = (TmCollectCtx *)ctx;
+  const uint16_t p = (uint16_t)tm_local_of(e->producer_id);
+  if (p != c->consumer) {
+    for (int i = 0; i < c->pn; i++)
+      if (c->preds[i] == p)
+        goto after_pred;
+    if (c->pn < (int)TM_PENDING_MAX_PRED)
+      c->preds[c->pn++] = p;
+  }
+after_pred:
   if (c->is_inout && st == TM_OVERLAP_COVERED)
     tm_remove(&g_tm_map, e);
   return true;
 }
 
-static inline TmRegion tm_region_from_tensor(const Tensor *t) {
-  TmRegion r;
-  memset(&r, 0, sizeof r);
-  r.base_addr = t->base;
-  r.storage_numel =
-      (uint32_t)((uint64_t)t->storage[0] * (uint64_t)t->storage[1]);
-  r.elem_size = (uint16_t)tensor_elem_size(t->dtype);
-  r.version = 0;
-  for (uint16_t i = 0; i < 2; i++) {
-    r.strides[i] = (uint16_t)t->strides[i];
-    r.shapes[i] = (uint16_t)t->shapes[i];
-    r.offsets[i] = (uint16_t)t->offsets[i];
+static inline void tm_lookup_tensor(TmTensorMap *self, const Tensor *t,
+                                    TmMatchFn on_match, void *ctx) {
+  const uint32_t b = tm_hash(self, t->base);
+  int32_t cur = tm_buckets(self)[b];
+  TmEntry *pl = tm_pool(self);
+
+  while (cur != -1) {
+    const int32_t next = pl[cur].next_in_bucket;
+    TmEntry *e = &pl[cur];
+    if (tm_entry_valid(self, e) && e->base_addr == t->base) {
+      const TmOverlap st = tm_overlap_tensor(t, e);
+      if (st != TM_OVERLAP_NONE && !on_match(e, st, ctx))
+        return;
+    }
+    cur = next;
   }
-  return r;
 }
 
-static inline void tm_tensor_lookup(uint16_t tid, const Tensor *view,
-                                    bool is_inout) {
-  TmRegion r = tm_region_from_tensor(view);
-  TmGeoMatchCtx ctx = {.consumer = tid, .is_inout = is_inout};
-  tm_lookup(&g_tm_map, &r, tm_geo_on_match, &ctx);
+static inline void tm_insert_tensor(TmTensorMap *self, const Tensor *t,
+                                    uint16_t tid) {
+  const int32_t idx = tm_new_entry(self);
+  if (idx < 0)
+    return;
+  TmEntry *e = &tm_pool(self)[idx];
+  e->base_addr = t->base;
+  e->version = 0;
+  e->elem_size = (uint16_t)t->dtype;
+  e->strides[0] = (uint16_t)t->strides[0];
+  e->strides[1] = (uint16_t)t->strides[1];
+  e->shapes[0] = (uint16_t)t->shapes[0];
+  e->shapes[1] = (uint16_t)t->shapes[1];
+  e->offsets[0] = (uint16_t)t->offsets[0];
+  e->offsets[1] = (uint16_t)t->offsets[1];
+  tm_link_entry(self, idx, t->base, tm_make_id(0, tid));
 }
 
-static inline void tm_tensor_insert(uint16_t tid, const Tensor *view) {
-  TmRegion r = tm_region_from_tensor(view);
-  tm_insert(&g_tm_map, &r, tm_make_id(0, tid));
+static inline void tm_pending_push(const Tensor *t, uint8_t kind) {
+  if (g_tm_pend_n < (int)TM_PENDING_MAX_IO) {
+    g_tm_pend[g_tm_pend_n].t = t;
+    g_tm_pend[g_tm_pend_n].kind = kind;
+    g_tm_pend_n++;
+  }
 }
 
 static inline void tm_deps_init(void) {
@@ -638,29 +692,62 @@ static inline void tm_deps_init(void) {
   for (uint32_t r = 1; r < TM_MAX_RINGS; r++)
     cfg.task_window[r] = 1;
   tm_init(&g_tm_map, g_tm_buf, &cfg);
+  tm_pending_clear();
 }
 
-static inline void tm_in(uint16_t tid, Tensor t) {
-  add_input(tid, t);
-  tm_tensor_lookup(tid, &t, false);
+static inline void tm_in_ptr(uint16_t tid, const Tensor *t) {
+  add_input_ptr(tid, t);
+#if !NO_DEPS
+  tm_pending_push(t, TM_PEND_IN);
+#endif
 }
 
-static inline void tm_in_ro(uint16_t tid, Tensor t) { add_input(tid, t); }
-
-static inline void tm_out(uint16_t tid, Tensor t) {
-  add_output(tid, t);
-  tm_tensor_insert(tid, &t);
+static inline void tm_in_ro_ptr(uint16_t tid, const Tensor *t) {
+  add_input_ptr(tid, t);
 }
 
-static inline void tm_inout(uint16_t tid, Tensor t) {
-  add_inout(tid, t);
-  tm_tensor_lookup(tid, &t, true);
-  tm_tensor_insert(tid, &t);
+static inline void tm_out_ptr(uint16_t tid, const Tensor *t) {
+  add_output_ptr(tid, t);
+#if !NO_DEPS
+  tm_pending_push(t, TM_PEND_OUT);
+#endif
 }
+
+static inline void tm_inout_ptr(uint16_t tid, const Tensor *t) {
+  add_inout_ptr(tid, t);
+#if !NO_DEPS
+  tm_pending_push(t, TM_PEND_INOUT);
+#endif
+}
+
+#define tm_in(tid, t) tm_in_ptr((tid), &(t))
+#define tm_in_ro(tid, t) tm_in_ro_ptr((tid), &(t))
+#define tm_out(tid, t) tm_out_ptr((tid), &(t))
+#define tm_inout(tid, t) tm_inout_ptr((tid), &(t))
 
 static inline void tm_submit(uint16_t tid) {
+#if !NO_DEPS
+  TmCollectCtx ctx = {.consumer = tid, .pn = 0};
+  int i;
+
+  for (i = 0; i < g_tm_pend_n; i++) {
+    if (g_tm_pend[i].kind & TM_PEND_IN) {
+      ctx.is_inout = (g_tm_pend[i].kind == TM_PEND_INOUT);
+      tm_lookup_tensor(&g_tm_map, g_tm_pend[i].t, tm_collect_on_match, &ctx);
+    }
+  }
+  for (i = 0; i < ctx.pn; i++)
+    succeed(tid, ctx.preds[i]);
+  for (i = 0; i < g_tm_pend_n; i++) {
+    if (g_tm_pend[i].kind & TM_PEND_OUT)
+      tm_insert_tensor(&g_tm_map, g_tm_pend[i].t, tid);
+  }
+  tm_pending_clear();
+#endif
   submit(tid);
+#if !NO_DEPS
   tm_sync_tensormap(&g_tm_map, 0, (int32_t)g_min_uncomplete_task);
+#endif
 }
 
 #endif /* TENSORMAP_WHOLE_BUFFER */

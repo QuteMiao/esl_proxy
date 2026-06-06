@@ -1,7 +1,7 @@
 /*
  * test_qwen3_decode_tensormap.c
  *
- * Compiles and RUNS the real cases/qwen3_decode_tensormap.h entry to verify the
+ * Compiles and RUNS the real cases/qwen3_dynamic_tensormap.h entry to verify the
  * tensormap auto-dependency conversion (producer discovery + edge set).
  *
  * esl_proxy's own mem_pool.h/ring_buf.h/task.h do NOT compile under the project
@@ -68,16 +68,35 @@ static inline Tensor tensor_make_2d(uint64_t base, uint32_t d0, uint32_t d1, dty
     return t;
 }
 
-static inline Tensor tensor_view(Tensor t, uint32_t row0, uint32_t nrows)
+static inline Tensor tensor_view(Tensor t, uint32_t dim, uint32_t off, uint32_t n)
 {
-    t.offsets[0] += row0;
-    t.shapes[0] = nrows;
+    t.offsets[dim] += off;
+    t.shapes[dim] = n;
     return t;
 }
 
-static inline void add_input(uint16_t tid, Tensor t) { (void)tid; (void)t; }
-static inline void add_output(uint16_t tid, Tensor t) { (void)tid; (void)t; }
-static inline void add_inout(uint16_t tid, Tensor t) { (void)tid; (void)t; }
+static inline Tensor tensor_chunk_2d(Tensor buf, uint32_t row0, uint32_t nrows,
+                                     uint32_t col0, uint32_t ncols, dtype_t dtype)
+{
+    const uint64_t es = (uint64_t)dtype;
+    const uint64_t off =
+        (uint64_t)row0 * buf.strides[0] + (uint64_t)col0 * buf.strides[1];
+    return tensor_make_2d(tensor_base(buf) + off * es, nrows, ncols, dtype);
+}
+
+static inline Tensor tensor_row_chunk(Tensor buf, uint32_t row0, uint32_t nrows)
+{
+    return tensor_chunk_2d(buf, row0, nrows, 0, buf.storage[1], buf.dtype);
+}
+
+static inline Tensor tensor_col_chunk(Tensor buf, uint32_t col0, uint32_t ncols)
+{
+    return tensor_chunk_2d(buf, 0, buf.storage[0], col0, ncols, buf.dtype);
+}
+
+static inline void add_input_ptr(uint16_t tid, const Tensor *t) { (void)tid; (void)t; }
+static inline void add_output_ptr(uint16_t tid, const Tensor *t) { (void)tid; (void)t; }
+static inline void add_inout_ptr(uint16_t tid, const Tensor *t) { (void)tid; (void)t; }
 static inline bool succeed(uint16_t c, uint16_t p);
 static inline void submit(uint16_t tid) { (void)tid; }
 
@@ -121,22 +140,15 @@ static inline bool succeed(uint16_t c, uint16_t p) {
 
 static inline bool try_new_task(uint32_t id) {
     (void)id;
-    return false; /* claim succeeds immediately; loop body never runs */
+    return true; /* single-thread test: claim succeeds immediately */
 }
 
 static int32_t g_dur[1u << 16];
 static inline void add_duration(uint16_t tid, int64_t d) { g_dur[tid] = (int32_t)d; }
 static inline void add_scalar(uint16_t tid, int64_t s) { (void)tid; (void)s; }
 
-#include "qwen3_decode_tensormap.h"
-
-/* Per-kernel durations, matching cases/qwen3_decode_tensormap.h (used as task
- * type tags so assertions can identify producers by kernel). */
-enum {
-    DUR_RMSNORM = 23950, DUR_QPROJ = 26060, DUR_KPROJ = 18170, DUR_VPROJ = 17890,
-    DUR_QKNORM = 13190, DUR_ONLINE = 20820, DUR_OUTPROJ = 40750, DUR_SILU = 2820,
-    DUR_DOWN = 72220
-};
+#define QWEN3_SPMD_TIER 4
+#include "qwen3_dynamic_tensormap.h"
 
 static int first_tid_with_dur(int32_t d) {
     for (int t = 1; t <= (int)g_task_id; t++) {
@@ -165,21 +177,21 @@ int main(void) {
     /* qk_norm of the FIRST tile reads block `tix` of q_proj and k_proj (its own
      * tile), so it depends on exactly that tile's q_proj + k_proj tasks (one
      * each) and NOT v_proj (never read) nor any other tile. */
-    qk = first_tid_with_dur(DUR_QKNORM);
+    qk = first_tid_with_dur(DUR_QK_NORM);
     assert(qk >= 0);
     n = producers_of((uint16_t)qk, pr, 4096);
     nq = nk = nv = 0;
     for (i = 0; i < n; i++) {
         int32_t d = g_dur[pr[i]];
-        if (d == DUR_QPROJ) nq++;
-        else if (d == DUR_KPROJ) nk++;
-        else if (d == DUR_VPROJ) nv++;
+        if (d == DUR_Q_PROJ) nq++;
+        else if (d == DUR_K_PROJ) nk++;
+        else if (d == DUR_V_PROJ) nv++;
     }
     printf("qk_norm[t%d]:   producers=%d  (q_proj=%d k_proj=%d v_proj=%d)\n", qk, n, nq, nk, nv);
     assert(nq == 1 && nk == 1 && nv == 0);
 
     /* a q_proj task depends on exactly its tile's rmsnorm (via normed_tile). */
-    qp = first_tid_with_dur(DUR_QPROJ);
+    qp = first_tid_with_dur(DUR_Q_PROJ);
     assert(qp >= 0);
     n = producers_of((uint16_t)qp, pr, 4096);
     nr = 0;
@@ -191,11 +203,11 @@ int main(void) {
      * the 16 online_softmax tasks of its tile, NOT all 90 batches. This is the
      * over-synchronization that whole-buffer granularity used to introduce
      * (90 producers); block views cut it to the tile's batch count. */
-    op = first_tid_with_dur(DUR_OUTPROJ);
+    op = first_tid_with_dur(DUR_OUT_PROJ);
     assert(op >= 0);
     n = producers_of((uint16_t)op, pr, 4096);
     no = 0;
-    for (i = 0; i < n; i++) if (g_dur[pr[i]] == DUR_ONLINE) no++;
+    for (i = 0; i < n; i++) if (g_dur[pr[i]] == DUR_ONLINE_SOFTMAX) no++;
     printf("out_proj[t%d]:  producers=%d  (online_softmax=%d  <- block-view, was 90)\n", op, n, no);
     assert(no == 16 && n == 16);
 
@@ -203,10 +215,10 @@ int main(void) {
      * demonstrating per-tile precision (out_proj edge count tracks cur_valid). */
     {
         int last_op = -1, j;
-        for (j = 1; j <= (int)g_task_id; j++) if (g_dur[j] == DUR_OUTPROJ) last_op = j;
+        for (j = 1; j <= (int)g_task_id; j++) if (g_dur[j] == DUR_OUT_PROJ) last_op = j;
         n = producers_of((uint16_t)last_op, pr, 4096);
         no = 0;
-        for (i = 0; i < n; i++) if (g_dur[pr[i]] == DUR_ONLINE) no++;
+        for (i = 0; i < n; i++) if (g_dur[pr[i]] == DUR_ONLINE_SOFTMAX) no++;
         printf("out_proj[t%d]:  producers=%d  (online_softmax=%d  <- last tile, cur_valid=10)\n",
                last_op, n, no);
         assert(no == 10 && n == 10);
@@ -214,7 +226,7 @@ int main(void) {
 
     /* down_proj reads full (whole-buffer) mlp_tile, which silu writes as one
      * tile-local task -> a single producer. */
-    dp = first_tid_with_dur(DUR_DOWN);
+    dp = first_tid_with_dur(DUR_DOWN_PROJ);
     assert(dp >= 0);
     n = producers_of((uint16_t)dp, pr, 4096);
     ns = 0;

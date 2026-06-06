@@ -12,9 +12,7 @@
 
 atomic_int g_task_id = 1;
 uint16_t g_min_uncomplete_task = 2;
-// multi-dispatch threads
 atomic_int g_completed_cnt = 0;
-// sub-threads exit flag
 atomic_bool g_is_done = false;
 
 _Atomic task_state g_state_buf[RING_SIZE];
