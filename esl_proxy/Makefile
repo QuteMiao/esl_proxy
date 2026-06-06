@@ -1,7 +1,7 @@
 # esl_proxy build
 #
 # Usage:
-#   make          # default: qwen3_dynamic_manual_scope.h, QWEN3_SPMD_TIER=4
+#   make          # default: qwen3_dynamic_manual_scope.h, QWEN3_SPMD_TIER=2
 #   make run
 #   make run WORKER_LOG=1
 #
@@ -11,7 +11,7 @@
 #   make CASE=paged_attention_unroll.h run
 #   make CASE=paged_attention_unroll_manual_scope.h run
 #
-# Qwen3 SPMD tier (0=non-spmd .. 4=all-spmd; default 4 for qwen3 cases only):
+# Qwen3 SPMD tier (0=non-spmd .. 4=all-spmd; default 2 = spmd-4 for qwen3 cases):
 #   make CASE=qwen3_dynamic_tensormap.h QWEN3_SPMD_TIER=0 run
 #
 # Other compile / run flags:
@@ -54,9 +54,9 @@ endif
 # All four cases use struct Tensor / tensormap helpers.
 CFLAGS   += -DUSE_TENSORMAP
 
-# Qwen3 only: default all-SPMD tier; override via make QWEN3_SPMD_TIER=N.
+# Qwen3 only: default spmd-4 tier; override via make QWEN3_SPMD_TIER=N.
 ifneq ($(filter $(CASE),$(QWEN3_CASES)),)
-QWEN3_SPMD_TIER ?= 4
+QWEN3_SPMD_TIER ?= 2
 CFLAGS   += -DQWEN3_SPMD_TIER=$(QWEN3_SPMD_TIER)
 endif
 
