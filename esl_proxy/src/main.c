@@ -10,6 +10,7 @@
 
 #include "conf.h"
 #include "cutter.h"
+#include "dep_dump.h"
 #include "dispatch.h"
 #include "executor.h"
 #include "log.h"
@@ -17,10 +18,10 @@
 #include "mem_pool.h"
 
 /* Orchestration case header. Override at build time, e.g.
- *   make CASE=qwen3_decode_tensormap.h
- * Defaults to the hand-wired all-SPMD case. */
+ *   make CASE=qwen3_dynamic_tensormap.h
+ * Defaults to qwen3 dynamic manual-scope (all-SPMD tier). */
 #ifndef ORCH_CASE
-#define ORCH_CASE qwen3_decode.h
+#define ORCH_CASE qwen3_dynamic_manual_scope.h
 #endif
 
 /* Macro to stringify the include directive properly */
@@ -48,8 +49,9 @@ static uint64_t get_time_ns(void) {
 int main(void) {
     pthread_t dispatch_threads[DISPATCH_THREAD_CNT];
     pthread_t cutter_threads[CUTTER_THREAD_CNT];
-    pthread_t executor_threads[EXECUTOR_THREAD_CNT];
-    pthread_t manager_thread;
+#if ORCHESTRATION_TIME
+    uint64_t total_start_ns = get_time_ns();
+#endif
 
 #if WORKER_LOG
     const char *log_env = getenv("WORKER_LOG");
@@ -96,8 +98,14 @@ int main(void) {
     uint64_t end_ns = get_time_ns();
     uint64_t elapsed_ns = end_ns - start_ns;
 
+    uint32_t task_cnt = 0;
     uint64_t subtask_cnt = 0;
-    for (uint32_t i = 1; i <= g_task_id; i++) {
+    for (uint32_t i = 1; i <= (uint32_t)g_task_id; i++) {
+        const task_state st = atomic_load_explicit(&g_state_buf[i & RING_MASK],
+                                                   memory_order_relaxed);
+        if (st.state == TASK_STATUS_EMPTY || st.task_id != (uint16_t)i)
+            continue;
+        task_cnt++;
         const struct task_desc *t = &g_basic_buf[i & RING_MASK];
         if (t->mode == ORG_MODE_SPMD_SYNC || t->mode == ORG_MODE_SPMD_ASYNC)
             subtask_cnt += t->count;
@@ -105,21 +113,39 @@ int main(void) {
             subtask_cnt += 1;
     }
 
-    MAIN_LOGF("[orchestration] task_cnt = %d", g_task_id);
+    MAIN_LOGF("[orchestration] task_cnt = %u", task_cnt);
     MAIN_LOGF("[orchestration] subtask_cnt = %llu",
             (unsigned long long)subtask_cnt);
     MAIN_LOGF("[orchestration] elapsed_time = %llu ns",
             (unsigned long long)elapsed_ns);
     MAIN_LOGF("[orchestration] task_tp = %f MTasks/s",
-            (float)( g_task_id * 1000.0 /elapsed_ns));
+            (float)(task_cnt * 1000.0 / elapsed_ns));
     MAIN_LOGF("[orchestration] subtask_tp = %f MTasks/s",
-            (float)( subtask_cnt * 1000.0 / elapsed_ns));
+            (float)(subtask_cnt * 1000.0 / elapsed_ns));
 #else
     aicpu_orchestration_entry(0);
 #endif
 
+    dep_dump_maybe();
+#if NO_DEPS
+    MAIN_LOGF("[deps] NO_DEPS=1 edges=0");
+#endif
+#if DEP_DUMP
+    MAIN_LOGF("[deps] edge_cnt=%u", dep_dump_count_edges());
+#endif
 
-#ifdef USE_TENSORMAP
+#if NO_DEPS
+#if ORCHESTRATION_TIME
+    {
+        uint64_t total_end_ns = get_time_ns();
+        MAIN_LOGF("[total] elapsed_time=%llu ns (orch-only)",
+                  (unsigned long long)(total_end_ns - total_start_ns));
+    }
+#endif
+    return 0;
+#endif
+
+#if defined(ORCH_TM_DEPS) && defined(USE_TENSORMAP)
 #ifndef TENSORMAP_WHOLE_BUFFER
     MAIN_LOGF("[tensormap] pool_high_water=%d valid_now=%d freed=%d (pool_size=%u)",
             tm_hdr(&g_tm_map)->next_entry_idx, tm_valid_count(&g_tm_map),

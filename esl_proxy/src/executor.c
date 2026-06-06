@@ -33,6 +33,7 @@ void executor_init(void)
 
 void* executor_worker(void *arg)
 {
+    (void)arg;
     return NULL;
     int total_write_cnt = 0;
     while (!g_is_done)

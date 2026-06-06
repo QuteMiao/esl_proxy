@@ -45,17 +45,18 @@ static TmConfig make_config(void) {
 static TmRegion region_1d(uint64_t base, uint64_t off, uint64_t len, uint64_t storage) {
     TmRegion r = {0};
     r.base_addr = base;
-    r.storage_numel = storage;
+    r.storage_numel = (uint32_t)storage;
     r.elem_size = 4;
     r.shapes[0] = 1;
     r.offsets[0] = 0;
     r.shapes[1] = (uint16_t)len;
     r.offsets[1] = (uint16_t)off;
+    r.strides[0] = (uint16_t)storage;
+    r.strides[1] = 1;
     return r;
 }
 
-/* Degenerate whole-buffer region: pure base-address match.
- * This is the Scope-A esl_proxy mapping when a Tensor is just a bare address. */
+/* Degenerate whole-buffer region: pure base-address match. */
 static TmRegion whole_buffer_region(uint64_t base) {
     TmRegion r = {0};
     r.base_addr = base;
@@ -428,12 +429,14 @@ static TmRegion region_2d(uint64_t base, uint32_t stor_d0, uint32_t stor_d1, uin
     TmRegion r;
     memset(&r, 0, sizeof r);
     r.base_addr = base;
-    r.storage_numel = (uint64_t)stor_d0 * stor_d1;
-    r.elem_size = elem_size;
+    r.storage_numel = stor_d0 * stor_d1;
+    r.elem_size = (uint16_t)elem_size;
     r.shapes[0] = (uint16_t)nrows;
     r.shapes[1] = (uint16_t)d1;
     r.offsets[0] = (uint16_t)row0;
     r.offsets[1] = 0;
+    r.strides[0] = (uint16_t)stor_d1;
+    r.strides[1] = 1;
     return r;
 }
 

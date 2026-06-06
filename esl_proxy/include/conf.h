@@ -21,12 +21,24 @@
 #define WORKER_LOG 1
 
 /* 1: compile in main thread logs; output to screen only */
+#ifndef MAIN_LOG
 #define MAIN_LOG 1
+#endif
 
 /* Log output mode: 0=file, 1=stdout, 2=both */
 #define LOG_OUTPUT_MODE 2
 
 /* 1: enable aicpu_orchestration_entry execution time logging in nanoseconds */
 #define ORCHESTRATION_TIME 1
+
+/* 1: compile post-orchestration DAG dump; runtime via DEP_DUMP=1 env */
+#ifndef DEP_DUMP
+#define DEP_DUMP 0
+#endif
+
+/* 1: skip tensormap lookup/insert and succeed(); all tasks submit with no edges */
+#ifndef NO_DEPS
+#define NO_DEPS 0
+#endif
 
 #endif /* CONF_H */

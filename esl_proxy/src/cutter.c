@@ -10,7 +10,6 @@ extern _Atomic bool g_is_done;
 void *cutter_worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
-    int prev = 0;
     while (!g_is_done) {
         // 从所有 ctrl 的 completed_queue 取任务处理依赖
         for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
