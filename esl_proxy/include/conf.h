@@ -18,7 +18,7 @@
 #define EXECUTOR_THREAD_CNT 1
 
 /* 1: compile in worker logs; toggle at runtime via g_worker_log or WORKER_LOG env */
-#define WORKER_LOG 0
+#define WORKER_LOG 1
 
 /* 1: compile in main thread logs; output to screen only */
 #define MAIN_LOG 1

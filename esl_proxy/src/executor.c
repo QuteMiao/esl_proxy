@@ -12,10 +12,9 @@
 #include "dispatch.h"
 #include "ring_buf.h"
 
+extern _Atomic bool g_is_done;
 extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 extern executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
-extern atomic_int g_task_id;
-extern atomic_int g_completed_cnt;
 
 void executor_init(void)
 {
@@ -36,7 +35,7 @@ void* executor_worker(void *arg)
 {
     return NULL;
     int total_write_cnt = 0;
-    while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id))
+    while (!g_is_done)
     {
         for (int exe_type = 0; exe_type < EXE_TYPE_CNT; exe_type++) {
             for (int core = 0; core < AIC_CNT; core++) {

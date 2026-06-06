@@ -48,7 +48,6 @@
 #include "dispatch.h"
 
 extern atomic_int g_task_id;
-extern atomic_int g_completed_cnt;
 extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
 // SPMD / execution-unit tagging helpers. Self-contained (poke g_basic_buf directly)
@@ -487,5 +486,5 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         succeed(g_task_id, out_proj_mixed_id);
         submit(g_task_id);
     }
-    g_completed_cnt++;
+    g_task_id--;
 }

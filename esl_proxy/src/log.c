@@ -19,7 +19,6 @@ static char g_log_filenames[LOG_MAX_THREADS][256] = {0};
 static pthread_t g_thread_ids[LOG_MAX_THREADS] = {0};  // Track which pthread_t owns each slot
 static char g_base_filename[256] = {0};
 static unsigned int g_next_slot = 0;  // Next available slot for new thread
-static FILE *g_main_log_file = NULL;  // Main thread log file
 
 void log_init(const char *base_filename)
 {
@@ -35,14 +34,6 @@ void log_init(const char *base_filename)
         g_thread_ids[i] = 0;
         g_log_files[i] = NULL;
         g_log_lines[i] = 0;
-    }
-    
-    // Open main thread log file
-    char main_filename[256];
-    snprintf(main_filename, sizeof(main_filename), "%s_main.csv", base_filename);
-    g_main_log_file = fopen(main_filename, "w");
-    if (g_main_log_file) {
-        fprintf(g_main_log_file, "line,detail\n");
     }
     
     pthread_mutex_unlock(&g_log_mutex);
@@ -153,11 +144,6 @@ void log_close(void)
         }
     }
     g_next_slot = 0;
-    
-    if (g_main_log_file) {
-        fclose(g_main_log_file);
-        g_main_log_file = NULL;
-    }
     
     pthread_mutex_unlock(&g_log_mutex);
 }

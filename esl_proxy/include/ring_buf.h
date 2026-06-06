@@ -173,8 +173,8 @@ static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t targ
             }
             ptr->successor[idx] = task_id[i];
             atomic_fetch_add_explicit(&g_predecessor_buf[task_id[i] & RING_MASK], 1, memory_order_seq_cst);
-            WORKER_LOGF("succeed task_id,%u,predecessor,%d,target,%u,idx,%d,successor,%d", 
-                task_id[i], g_predecessor_buf[task_id[i] & RING_MASK], target, idx, ptr->successor[idx]);
+            WORKER_LOGF("succeed,task_id,%u,predecessor_cnt,%d,predecessor_id,%u,idx,%d", 
+                task_id[i], g_predecessor_buf[task_id[i] & RING_MASK], target, idx);
             idx++;
         }
         return true;
@@ -236,7 +236,7 @@ static inline bool succeed(uint16_t task_id, uint16_t target)
         }
         ptr->successor[idx] = task_id;
         atomic_fetch_add_explicit(&g_predecessor_buf[task_id & RING_MASK], 1, memory_order_seq_cst);
-        WORKER_LOGF("succeed task_id,%u,predecessor,%d,target,%u", task_id, g_predecessor_buf[task_id & RING_MASK], target);
+        WORKER_LOGF("succeed,task_id,%u,predecessor_cnt,%d,predecessor_id,%u", task_id, g_predecessor_buf[task_id & RING_MASK], target);
         return true;
     }
     return false;

@@ -64,8 +64,9 @@ $(CASE_STAMP): force | $(OBJ_DIR)
 $(OBJ_DIR) $(BIN_DIR):
 	mkdir -p $@
 
+
 run: all
-	WORKER_LOG=$(WORKER_LOG) $(TARGET)
+	$(TARGET)
 
 clean:
 	rm -rf build $(BIN_DIR)

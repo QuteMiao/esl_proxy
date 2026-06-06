@@ -73,6 +73,23 @@ int main(void) {
     executor_init();
     // MAIN_LOGF("[orchestration] init done");
     // pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
+
+    // for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
+    //     pthread_create(&dispatch_threads[i], NULL, dispatch_worker,
+    //                    (void *)(intptr_t)i);
+    // }
+
+    // for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
+    //     pthread_create(&cutter_threads[i], NULL, cutter_worker,
+    //                    (void *)(intptr_t)i);
+    // }
+
+    // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
+    //     pthread_create(&executor_threads[i], NULL, executor_worker,
+    //                    (void *)(intptr_t)i);
+    // }
+    // MAIN_LOGF("[orchestration] thread created");
+
 #if ORCHESTRATION_TIME
     uint64_t start_ns = get_time_ns();
     aicpu_orchestration_entry(0);
@@ -88,35 +105,18 @@ int main(void) {
             subtask_cnt += 1;
     }
 
-    MAIN_LOGF("[orchestration] task_cnt=%d", g_task_id);
-    MAIN_LOGF("[orchestration] subtask_cnt=%llu",
+    MAIN_LOGF("[orchestration] task_cnt = %d", g_task_id);
+    MAIN_LOGF("[orchestration] subtask_cnt = %llu",
             (unsigned long long)subtask_cnt);
-    MAIN_LOGF("[orchestration] elapsed_time=%llu ns",
+    MAIN_LOGF("[orchestration] elapsed_time = %llu ns",
             (unsigned long long)elapsed_ns);
-    MAIN_LOGF("[orchestration] time_240_task=%llu ns",
-            (unsigned long long)(elapsed_ns / g_task_id * 240));
-    MAIN_LOGF("[orchestration] time_240_subtask=%llu ns",
-            (unsigned long long)(elapsed_ns / subtask_cnt * 240));
+    MAIN_LOGF("[orchestration] task_tp = %f MTasks/s",
+            (float)( g_task_id * 1000.0 /elapsed_ns));
+    MAIN_LOGF("[orchestration] subtask_tp = %f MTasks/s",
+            (float)( subtask_cnt * 1000.0 / elapsed_ns));
 #else
     aicpu_orchestration_entry(0);
 #endif
-
-    for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-        pthread_create(&dispatch_threads[i], NULL, dispatch_worker,
-                       (void *)(intptr_t)i);
-    }
-
-    for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
-        pthread_create(&cutter_threads[i], NULL, cutter_worker,
-                       (void *)(intptr_t)i);
-    }
-
-    // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
-    //     pthread_create(&executor_threads[i], NULL, executor_worker,
-    //                    (void *)(intptr_t)i);
-    // }
-    // MAIN_LOGF("[orchestration] thread created");
-
 
 
 #ifdef USE_TENSORMAP
@@ -134,12 +134,12 @@ int main(void) {
     // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
     //     pthread_join(executor_threads[i], NULL);
     // }
-    for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
-        pthread_join(cutter_threads[i], NULL);
-    }
-    for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-        pthread_join(dispatch_threads[i], NULL);
-    }
+    // for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
+    //     pthread_join(cutter_threads[i], NULL);
+    // }
+    // for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
+    //     pthread_join(dispatch_threads[i], NULL);
+    // }
     // pthread_join(manager_thread, NULL);
 
 #if WORKER_LOG

@@ -10,9 +10,12 @@
 #include "conf.h"
 #include "dispatch.h"
 
-atomic_int g_task_id = 0;
-uint16_t g_min_uncomplete_task = 0;
-atomic_int g_completed_cnt = -1;
+atomic_int g_task_id = 1;
+uint16_t g_min_uncomplete_task = 2;
+// multi-dispatch threads
+atomic_int g_completed_cnt = 0;
+// sub-threads exit flag
+atomic_bool g_is_done = false;
 
 _Atomic task_state g_state_buf[RING_SIZE];
 _Atomic uint16_t g_predecessor_buf[RING_SIZE];
@@ -24,7 +27,7 @@ executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
 atomic_flag g_lock_buf[RING_SIZE];
 mem_pool_t g_mem_pool;
 ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
-atomic_bool g_is_done = false;
+
 void init_ctrl_t(void)
 {
     for (int tid = 0; tid < DISPATCH_THREAD_CNT; tid++) {

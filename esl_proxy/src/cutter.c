@@ -4,8 +4,6 @@
 
 #include <stdint.h>
 
-extern atomic_int g_task_id;
-extern atomic_int g_completed_cnt;
 extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 extern _Atomic bool g_is_done;
 
