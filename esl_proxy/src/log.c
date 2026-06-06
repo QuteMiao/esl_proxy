@@ -59,7 +59,7 @@ static unsigned int find_or_create_thread_slot(pthread_t tid)
     
     // Create new log file for this thread
     snprintf(g_log_filenames[idx], sizeof(g_log_filenames[idx]),
-             "%s_thread_%u.csv", g_base_filename, idx);
+             "log/%s_thread_%u.csv", g_base_filename, idx);
     g_log_files[idx] = fopen(g_log_filenames[idx], "w");
     if (!g_log_files[idx]) {
         perror("Failed to open thread log file");

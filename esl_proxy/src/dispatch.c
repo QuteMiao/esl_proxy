@@ -148,11 +148,20 @@ void *dispatch_worker(void *arg)
 
     int loop_cnt = 0;
     int total_sent = 0;
+    uint64_t start_ns = get_time_ns();
     while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id)) {
         total_sent += dispatch(tid);
         // WORKER_LOGF("worker %d,total_sent,%d total,%d", tid, total_sent, g_task_id);
     }
     g_is_done = true;
+    uint64_t end_ns = get_time_ns();
+    uint64_t elapsed_ns = end_ns - start_ns;
+
+    MAIN_LOGF("[scheduler] task_cnt = %u", total_sent);
+    MAIN_LOGF("[scheduler] duration = %llu ns", (unsigned long long)elapsed_ns);
+    MAIN_LOGF("[scheduler] task_tp = %f MTasks/s",
+            (float)(total_sent * 1000.0 / elapsed_ns));
+
     WORKER_LOGF("worker,%d,total_sent,%d total,%d", tid, total_sent, g_task_id);
     return NULL;
 }

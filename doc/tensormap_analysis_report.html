@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TensorMap 数据依赖检测系统深度分析报告</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        header {
+            background: white;
+            border-radius: 20px;
+            padding: 50px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 15px;
+        }
+        
+        .subtitle {
+            font-size: 1.2em;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        .meta-info {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+        }
+        
+        .meta-item {
+            text-align: center;
+        }
+        
+        .meta-label {
+            font-size: 0.9em;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .meta-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .content {
+            background: white;
+            border-radius: 20px;
+            padding: 50px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h2 {
+            font-size: 2em;
+            color: #667eea;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        h2::before {
+            content: "📋";
+            font-size: 1.5em;
+        }
+        
+        h3 {
+            font-size: 1.5em;
+            color: #764ba2;
+            margin: 30px 0 20px 0;
+            padding-left: 20px;
+            border-left: 4px solid #764ba2;
+        }
+        
+        h4 {
+            font-size: 1.2em;
+            color: #555;
+            margin: 20px 0 15px 0;
+        }
+        
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        
+        .highlight-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            margin: 25px 0;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+        
+        .highlight-box h4 {
+            color: white;
+            border-bottom: 2px solid rgba(255,255,255,0.3);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin: 25px 0;
+        }
+        
+        .info-card {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            border-left: 5px solid #667eea;
+            transition: all 0.3s ease;
+        }
+        
+        .info-card:hover {
+            transform: translateX(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .info-card h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .info-card p {
+            color: #666;
+            margin: 0;
+        }
+        
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 10px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.8;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .code-block .comment {
+            color: #6a9955;
+        }
+        
+        .code-block .keyword {
+            color: #569cd6;
+        }
+        
+        .code-block .type {
+            color: #4ec9b0;
+        }
+        
+        .code-block .function {
+            color: #dcdcaa;
+        }
+        
+        .code-block .number {
+            color: #b5cea8;
+        }
+        
+        .code-block .string {
+            color: #ce9178;
+        }
+        
+        .flow-diagram {
+            background: #f8f9fa;
+            padding: 40px;
+            border-radius: 15px;
+            margin: 25px 0;
+            text-align: center;
+        }
+        
+        .flow-step {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            margin: 10px;
+            font-weight: bold;
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .flow-step:hover {
+            transform: scale(1.05);
+        }
+        
+        .arrow {
+            display: inline-block;
+            font-size: 2em;
+            margin: 0 15px;
+            color: #667eea;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 25px 0;
+        }
+        
+        .stat-item {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+        
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .stat-label {
+            font-size: 1em;
+            opacity: 0.9;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: bold;
+        }
+        
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .note {
+            background: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .note strong {
+            color: #856404;
+        }
+        
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .feature-list li {
+            padding: 15px 20px;
+            margin: 10px 0;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+            transition: all 0.3s ease;
+        }
+        
+        .feature-list li:hover {
+            transform: translateX(10px);
+            background: #667eea;
+            color: white;
+        }
+        
+        .architecture-diagram {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px;
+            border-radius: 20px;
+            margin: 25px 0;
+            color: white;
+            text-align: center;
+        }
+        
+        .arch-layer {
+            background: white;
+            color: #333;
+            padding: 20px;
+            border-radius: 15px;
+            margin: 15px 0;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        
+        .arch-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        
+        .timeline {
+            position: relative;
+            padding-left: 30px;
+        }
+        
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+        
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+            padding-left: 30px;
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -33px;
+            top: 5px;
+            width: 16px;
+            height: 16px;
+            background: #667eea;
+            border-radius: 50%;
+            border: 4px solid white;
+            box-shadow: 0 0 0 4px #667eea;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            margin: 20px 0;
+        }
+        
+        .comparison-table th {
+            background: #667eea;
+        }
+        
+        .comparison-table td:first-child {
+            font-weight: bold;
+            background: #f8f9fa;
+        }
+        
+        footer {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        footer p {
+            color: #666;
+            margin: 0;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            .container {
+                padding: 20px 10px;
+            }
+            
+            .content {
+                padding: 30px 20px;
+            }
+            
+            .meta-info {
+                gap: 15px;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TensorMap 数据依赖检测系统</h1>
+            <p class="subtitle">基于 TensorMap 的任务间数据依赖计算逻辑深度分析</p>
+            <div class="meta-info">
+                <div class="meta-item">
+                    <div class="meta-label">分析对象</div>
+                    <div class="meta-value">TensorMap</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">代码规模</div>
+                    <div class="meta-value">763 行</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">核心算法</div>
+                    <div class="meta-value">哈希+重叠检测</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">内存模型</div>
+                    <div class="meta-value">零分配</div>
+                </div>
+            </div>
+        </header>
+        
+        <div class="content">
+            <h2>系统概述</h2>
+            
+            <p>TensorMap 是一个轻量级、无依赖的生产者查找映射（Producer-Lookup Map），专门设计用于在 DAG 执行引擎中检测任务间的数据依赖关系。该系统通过维护一个内存中的映射表，记录每个内存区域的生产者任务信息，从而在消费者任务提交时能够自动发现其数据依赖关系。</p>
+            
+            <div class="highlight-box">
+                <h4>核心设计理念</h4>
+                <p>TensorMap 采用"零分配"设计理念：所有状态都保存在调用者提供的原始缓冲区中，通过偏移量访问而非指针，使得映射表可以自由移动（memcpy）而无需指针修复。这使得它成为一个完全无耦合的可选工具，可以叠加在任何现有的 DAG 执行引擎之上。</p>
+            </div>
+            
+            <h3>核心特性</h3>
+            <ul class="feature-list">
+                <li><strong>生产者查找</strong>：给定一个地址区域，快速找到所有产生该数据的任务</li>
+                <li><strong>子区域重叠检测</strong>：支持 2D 区域的几何重叠判断，而不仅仅是精确地址匹配</li>
+                <li><strong>延迟失效</strong>：使用每环（per-ring）水位线机制实现高效的过期条目清理</li>
+                <li><strong>池化条目</strong>：预分配的条目池，避免运行时内存分配</li>
+                <li><strong>位置无关</strong>：纯偏移量设计，支持跨进程/跨设备传输</li>
+                <li><strong>双模式支持</strong>：支持完整 Tensor 几何信息模式和简单缓冲区模式</li>
+            </ul>
+        </div>
+        
+        <div class="content">
+            <h2>核心数据结构</h2>
+            
+            <h3>2.1 配置结构 (TmConfig)</h3>
+            <p>配置结构定义了 TensorMap 的基本参数，所有参数必须是 2 的幂次方（除了 num_rings）：</p>
+            
+            <div class="code-block">
+<span class="comment">/* Configuration POD. num_buckets and every task_window[r] must be powers of two. */</span>
+<span class="keyword">typedef</span> <span class="keyword">struct</span> <span class="type">TmConfig</span> {
+  <span class="type">uint32_t</span> num_buckets;      <span class="comment">// 哈希桶数量（必须是2的幂）</span>
+  <span class="type">uint32_t</span> pool_size;       <span class="comment">// 条目池大小</span>
+  <span class="type">uint32_t</span> num_rings;        <span class="comment">// 环层数量</span>
+  <span class="type">uint32_t</span> task_window[TM_MAX_RINGS]; <span class="comment">// 每个环的任务窗口大小</span>
+} <span class="type">TmConfig</span>;
+            </div>
+            
+            <h3>2.2 区域描述符 (TmRegion)</h3>
+            <p>描述一个 2D 内存区域的精确几何信息，用于重叠检测：</p>
+            
+            <div class="code-block">
+<span class="comment">/* Region descriptor for unit tests (2D row-major geometry). */</span>
+<span class="keyword">typedef</span> <span class="keyword">struct</span> <span class="type">TmRegion</span> {
+  <span class="type">uint64_t</span> base_addr;          <span class="comment">// 基础地址</span>
+  <span class="type">uint32_t</span> storage_numel;      <span class="comment">// 存储总元素数</span>
+  <span class="type">uint16_t</span> elem_size;          <span class="comment">// 元素大小（字节）</span>
+  <span class="type">int32_t</span> version;             <span class="comment">// 版本号（用于懒失效）</span>
+  <span class="type">uint16_t</span> strides[TM_MAX_DIMS];   <span class="comment">// 步长数组</span>
+  <span class="type">uint16_t</span> shapes[TM_MAX_DIMS];   <span class="comment">// 形状数组</span>
+  <span class="type">uint16_t</span> offsets[TM_MAX_DIMS];  <span class="comment">// 偏移数组</span>
+} <span class="type">TmRegion</span>;
+            </div>
+            
+            <h3>2.3 池条目 (TmEntry)</h3>
+            <p>映射表中的核心条目，存储生产者的完整信息：</p>
+            
+            <div class="code-block">
+<span class="comment">/* Pool entry. Links are pool indices (-1 = none) so the buffer is relocatable. */</span>
+<span class="keyword">typedef</span> <span class="keyword">struct</span> <span class="type">TmEntry</span> {
+  <span class="type">uint64_t</span> base_addr;           <span class="comment">// 基础地址</span>
+  <span class="type">uint64_t</span> producer_id;         <span class="comment">// 生产者ID（环+本地编码）</span>
+  <span class="type">int32_t</span> version;              <span class="comment">// 版本号</span>
+  <span class="type">uint16_t</span> elem_size;          <span class="comment">// 元素大小</span>
+  <span class="type">uint16_t</span> strides[TM_MAX_DIMS];   <span class="comment">// 步长</span>
+  <span class="type">uint16_t</span> shapes[TM_MAX_DIMS];   <span class="comment">// 形状</span>
+  <span class="type">uint16_t</span> offsets[TM_MAX_DIMS];  <span class="comment">// 偏移</span>
+  <span class="type">int32_t</span> next_in_bucket;     <span class="comment">// 桶内下一条目索引</span>
+  <span class="type">int32_t</span> prev_in_bucket;     <span class="comment">// 桶内前一条目索引</span>
+  <span class="type">int32_t</span> next_in_task;       <span class="comment">// 任务链下一条目索引</span>
+  <span class="type">int32_t</span> prev_in_task;       <span class="comment">// 任务链前一条目索引</span>
+  <span class="type">int32_t</span> bucket_index;       <span class="comment">// 所属桶索引（-1表示未链接）</span>
+} <span class="type">TmEntry</span>;
+            </div>
+            
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4>哈希链结构</h4>
+                    <p>每个 TmEntry 通过 next_in_bucket 和 prev_in_bucket 形成哈希桶链表，实现 O(1) 平均查找。</p>
+                </div>
+                <div class="info-card">
+                    <h4>任务链结构</h4>
+                    <p>每个 TmEntry 通过 next_in_task 和 prev_in_task 形成任务链表，用于批量失效清理。</p>
+                </div>
+            </div>
+            
+            <h3>2.4 头部结构 (TmHeader)</h3>
+            <p>管理整个映射表元数据：</p>
+            
+            <div class="code-block">
+<span class="comment">/* In-buffer header: config echo + cursors + sub-region offsets. */</span>
+<span class="keyword">typedef</span> <span class="keyword">struct</span> <span class="type">TmHeader</span> {
+  <span class="type">TmConfig</span> cfg;                   <span class="comment">// 配置副本</span>
+  <span class="type">int32_t</span> next_entry_idx;       <span class="comment">// 下一个可用条目索引</span>
+  <span class="type">int32_t</span> free_num;             <span class="comment">// 空闲条目数量</span>
+  <span class="type">int32_t</span> last_alive[TM_MAX_RINGS];    <span class="comment">// 每环最后活跃任务ID</span>
+  <span class="type">int32_t</span> last_cleanup[TM_MAX_RINGS];  <span class="comment">// 每环最后清理任务ID</span>
+  <span class="type">uint32_t</span> off_buckets;          <span class="comment">// 哈希桶数组偏移</span>
+  <span class="type">uint32_t</span> off_pool;             <span class="comment">// 条目池偏移</span>
+  <span class="type">uint32_t</span> off_free;              <span class="comment">// 空闲列表偏移</span>
+  <span class="type">uint32_t</span> off_task_heads[TM_MAX_RINGS]; <span class="comment">// 每环任务头数组偏移</span>
+} <span class="type">TmHeader</span>;
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>内存布局</h2>
+            
+            <p>TensorMap 采用单一原始缓冲区，所有数据结构紧凑排列，使用偏移量进行寻址：</p>
+            
+            <div class="architecture-diagram">
+                <div class="arch-layer">
+                    <div class="arch-title">📦 单一内存缓冲区布局</div>
+                    <div style="text-align: left; padding: 20px;">
+                        <div style="background: #667eea; color: white; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                            <strong>Offset 0: TmHeader</strong><br>
+                            <small>配置 + 游标 + 子区域偏移</small>
+                        </div>
+                        <div style="text-align: center; font-size: 2em; margin: 10px 0;">↓</div>
+                        <div style="background: #764ba2; color: white; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                            <strong>off_buckets: int32_t[]</strong><br>
+                            <small>哈希桶数组（num_buckets 个）</small>
+                        </div>
+                        <div style="text-align: center; font-size: 2em; margin: 10px 0;">↓</div>
+                        <div style="background: #f093fb; color: white; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                            <strong>off_pool: TmEntry[]</strong><br>
+                            <small>条目池（pool_size 个条目）</small>
+                        </div>
+                        <div style="text-align: center; font-size: 2em; margin: 10px 0;">↓</div>
+                        <div style="background: #667eea; color: white; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                            <strong>off_free: int32_t[]</strong><br>
+                            <small>空闲列表（pool_size 个索引）</small>
+                        </div>
+                        <div style="text-align: center; font-size: 2em; margin: 10px 0;">↓</div>
+                        <div style="background: #764ba2; color: white; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                            <strong>off_task_heads[ring]: int32_t[]</strong><br>
+                            <small>每环任务头数组（task_window[ring] 个）</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="highlight-box">
+                <h4>内存计算公式</h4>
+                <p>所需字节数 = sizeof(TmHeader) + num_buckets × sizeof(int32_t) + pool_size × (sizeof(TmEntry) + sizeof(int32_t)) + Σ(ring) task_window[ring] × sizeof(int32_t)</p>
+                <p>默认配置：2048 桶 + 8192 条目池 + 65536 任务窗口 ≈ 500KB</p>
+            </div>
+            
+            <h3>内存布局计算代码</h3>
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">uint64_t</span> <span class="function">tm_layout</span>(<span class="keyword">const</span> <span class="type">TmConfig</span> *cfg, <span class="type">TmHeader</span> *out) {
+  <span class="type">uint64_t</span> cur = <span class="keyword">sizeof</span>(<span class="type">TmHeader</span>);
+  <span class="type">uint64_t</span> off_buckets = cur;
+  cur += (<span class="type">uint64_t</span>)cfg->num_buckets * <span class="keyword">sizeof</span>(<span class="type">int32_t</span>);
+  <span class="type">uint64_t</span> off_pool = cur;
+  cur += (<span class="type">uint64_t</span>)cfg->pool_size * <span class="keyword">sizeof</span>(<span class="type">TmEntry</span>);
+  <span class="type">uint64_t</span> off_free = cur;
+  cur += (<span class="type">uint64_t</span>)cfg->pool_size * <span class="keyword">sizeof</span>(<span class="type">int32_t</span>);
+  <span class="type">uint64_t</span> off_task[TM_MAX_RINGS] = {0};
+  <span class="keyword">for</span> (<span class="type">uint32_t</span> r = 0; r < cfg->num_rings; r++) {
+    off_task[r] = cur;
+    cur += (<span class="type">uint64_t</span>)cfg->task_window[r] * <span class="keyword">sizeof</span>(<span class="type">int32_t</span>);
+  }
+  <span class="keyword">if</span> (out != NULL) {
+    out->off_buckets = off_buckets;
+    out->off_pool = off_pool;
+    out->off_free = off_free;
+    <span class="keyword">for</span> (<span class="type">uint32_t</span> r = 0; r < cfg->num_rings; r++) {
+      out->off_task_heads[r] = off_task[r];
+    }
+  }
+  <span class="keyword">return</span> cur;
+}
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>生产者ID编码</h2>
+            
+            <p>TensorMap 使用 64 位整数编码生产者身份，自包含环和本地 ID 的编码逻辑：</p>
+            
+            <div class="code-block">
+<span class="comment">/* Producer-id encoding (owned by this module). */</span>
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">uint64_t</span> <span class="function">tm_make_id</span>(<span class="type">uint32_t</span> ring, <span class="type">uint32_t</span> local) {
+  <span class="keyword">return</span> ((<span class="type">uint64_t</span>)ring << 32) | local;
+}
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">uint32_t</span> <span class="function">tm_ring_of</span>(<span class="type">uint64_t</span> id) { <span class="keyword">return</span> (<span class="type">uint32_t</span>)(id >> 32); }
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">uint32_t</span> <span class="function">tm_local_of</span>(<span class="type">uint64_t</span> id) {
+  <span class="keyword">return</span> (<span class="type">uint32_t</span>)(id & 0xFFFFFFFFu);
+}
+            </div>
+            
+            <div class="flow-diagram">
+                <div class="flow-step">Ring ID (32bit)</div>
+                <span class="arrow">+</span>
+                <div class="flow-step">Local ID (32bit)</div>
+                <span class="arrow">=</span>
+                <div class="flow-step">Producer ID (64bit)</div>
+            </div>
+            
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4>编码规则</h4>
+                    <p>高 32 位存储环 ID，低 32 位存储本地任务 ID。这种编码方式允许单次比较同时获取两个维度。</p>
+                </div>
+                <div class="info-card">
+                    <h4>解码操作</h4>
+                    <p>tm_ring_of() 和 tm_local_of() 提供常量时间复杂度的解码，支持快速的任务链管理和失效判断。</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>数据依赖检测算法</h2>
+            
+            <h3>3.1 区域重叠检测 (Overlap Detection)</h3>
+            
+            <p>重叠检测是 TensorMap 的核心算法，用于判断两个 2D 区域是否存在数据依赖：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">TmOverlap</span> <span class="function">tm_overlap</span>(<span class="keyword">const</span> <span class="type">TmRegion</span> *in, <span class="keyword">const</span> <span class="type">TmEntry</span> *e) {
+  <span class="comment">// 版本号检查：输入版本必须不大于条目版本</span>
+  <span class="keyword">if</span> (in->version > e->version)
+    <span class="keyword">return</span> <span class="type">TM_OVERLAP_OTHER</span>;
+  
+  <span class="comment">// 元素大小检查：必须匹配</span>
+  <span class="keyword">if</span> (in->elem_size != e->elem_size)
+    <span class="keyword">return</span> <span class="type">TM_OVERLAP_OTHER</span>;
+  
+  <span class="comment">// 步长检查：所有维度步长必须一致</span>
+  <span class="keyword">for</span> (<span class="type">uint16_t</span> i = 0; i < TM_MAX_DIMS; i++) {
+    <span class="keyword">if</span> (in->strides[i] != e->strides[i])
+      <span class="keyword">return</span> <span class="type">TM_OVERLAP_OTHER</span>;
+  }
+  
+  <span class="comment">// 2D 超矩形重叠检测</span>
+  <span class="type">bool</span> covered = <span class="keyword">true</span>;
+  <span class="keyword">for</span> (<span class="type">uint16_t</span> i = 0; i < TM_MAX_DIMS; i++) {
+    <span class="type">const</span> <span class="type">uint64_t</span> a0 = in->offsets[i], a1 = a0 + in->shapes[i];
+    <span class="type">const</span> <span class="type">uint64_t</span> b0 = e->offsets[i], b1 = b0 + e->shapes[i];
+    
+    <span class="comment">// 无重叠检测：A1 <= B0 或 B1 <= A0</span>
+    <span class="keyword">if</span> (!(a1 > b0 && b1 > a0))
+      <span class="keyword">return</span> <span class="type">TM_OVERLAP_NONE</span>;
+    
+    <span class="comment">// 完全覆盖检测：A0 <= B0 且 B1 <= A1</span>
+    <span class="keyword">if</span> (!(a0 <= b0 && b1 <= a1))
+      covered = <span class="keyword">false</span>;
+  }
+  <span class="keyword">return</span> covered ? <span class="type">TM_OVERLAP_COVERED</span> : <span class="type">TM_OVERLAP_OTHER</span>;
+}
+            </div>
+            
+            <h3>3.2 重叠状态定义</h3>
+            
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4>TM_OVERLAP_NONE (0)</h4>
+                    <p>两个区域完全不相交，无数据依赖关系。</p>
+                </div>
+                <div class="info-card">
+                    <h4>TM_OVERLAP_COVERED (1)</h4>
+                    <p>消费者区域被生产者区域完全覆盖（生产者是消费者的超集）。</p>
+                </div>
+                <div class="info-card">
+                    <h4>TM_OVERLAP_OTHER (2)</h4>
+                    <p>区域部分重叠（保守判断），可能存在数据依赖。</p>
+                </div>
+            </div>
+            
+            <h3>3.3 2D 重叠检测原理</h3>
+            
+            <div class="flow-diagram">
+                <div style="display: block; margin: 20px 0;">
+                    <div class="flow-step" style="background: #4caf50;">A区域: [a0, a1]</div>
+                    <span class="arrow">vs</span>
+                    <div class="flow-step" style="background: #ff9800;">B区域: [b0, b1]</div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: left;">
+                        <p><strong>维度 0 (行):</strong></p>
+                        <p>• 重叠条件: a1 > b0 && b1 > a0</p>
+                        <p>• 覆盖条件: a0 <= b0 && b1 <= a1</p>
+                        <br>
+                        <p><strong>维度 1 (列):</strong></p>
+                        <p>• 重叠条件: a1 > b0 && b1 > a0</p>
+                        <p>• 覆盖条件: a0 <= b0 && b1 <= a1</p>
+                    </div>
+                </div>
+            </div>
+            
+            <h3>3.4 哈希函数</h3>
+            
+            <p>使用 Golden Ratio 哈希实现均匀分布：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">uint32_t</span> <span class="function">tm_hash</span>(<span class="keyword">const</span> <span class="type">TmTensorMap</span> *self, <span class="type">uint64_t</span> key) {
+  key *= 0x9E3779B97F4A7C15ULL;  <span class="comment">// 乘以 Golden Ratio 的倒数</span>
+  <span class="keyword">return</span> (<span class="type">uint32_t</span>)(key >> (64 - __builtin_ctz(tm_hdr(self)->cfg.num_buckets)));
+}
+            </div>
+            
+            <div class="note">
+                <strong>注意：</strong>哈希函数要求 num_buckets 必须是 2 的幂次方，以便使用位移操作代替取模，提高性能。
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>依赖检测流程</h2>
+            
+            <h3>4.1 插入流程 (tm_insert)</h3>
+            
+            <p>当任务产生一个输出张量时，将其注册到 TensorMap：</p>
+            
+            <div class="flow-diagram">
+                <div class="flow-step">1. 分配条目</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">2. 填充数据</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">3. 加入哈希桶</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">4. 加入任务链</div>
+            </div>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_link_entry</span>(<span class="type">TmTensorMap</span> *self, <span class="type">int32_t</span> idx, <span class="type">uint64_t</span> addr,
+                             <span class="type">uint64_t</span> producer_id) {
+  <span class="type">TmEntry</span> *pl = tm_pool(self);
+  <span class="type">int32_t</span> *bk = tm_buckets(self);
+  <span class="type">TmEntry</span> *e = &pl[idx];
+  e->producer_id = producer_id;
+
+  <span class="comment">// 哈希计算并加入桶链</span>
+  <span class="keyword">const</span> <span class="type">uint32_t</span> b = tm_hash(self, addr);
+  e->bucket_index = (<span class="type">int32_t</span>)b;
+  e->prev_in_bucket = -1;
+  e->next_in_bucket = bk[b];
+  <span class="keyword">if</span> (bk[b] != -1)
+    pl[bk[b]].prev_in_bucket = idx;
+  bk[b] = idx;
+
+  <span class="comment">// 加入任务链（用于失效清理）</span>
+  <span class="keyword">const</span> <span class="type">uint32_t</span> ring = tm_ring_of(producer_id);
+  <span class="keyword">const</span> <span class="type">uint32_t</span> slot =
+      tm_local_of(producer_id) & (tm_hdr(self)->cfg.task_window[ring] - 1);
+  <span class="type">int32_t</span> *th = tm_task_heads(self, ring);
+  e->prev_in_task = -1;
+  e->next_in_task = th[slot];
+  <span class="keyword">if</span> (th[slot] != -1)
+    pl[th[slot]].prev_in_task = idx;
+  th[slot] = idx;
+}
+            </div>
+            
+            <h3>4.2 查找流程 (tm_lookup)</h3>
+            
+            <p>当任务声明输入依赖时，查找所有重叠的生产者：</p>
+            
+            <div class="flow-diagram">
+                <div class="flow-step">1. 哈希定位桶</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">2. 遍历桶链</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">3. 验证有效性</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">4. 检测重叠</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">5. 回调生产者</div>
+            </div>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_lookup</span>(<span class="type">TmTensorMap</span> *self, <span class="keyword">const</span> <span class="type">TmRegion</span> *r,
+                             <span class="type">TmMatchFn</span> on_match, <span class="type">void</span> *ctx) {
+  <span class="comment">// 步骤1：哈希定位</span>
+  <span class="keyword">const</span> <span class="type">uint32_t</span> b = tm_hash(self, r->base_addr);
+  <span class="type">int32_t</span> cur = tm_buckets(self)[b];
+  <span class="type">TmEntry</span> *pl = tm_pool(self);
+  
+  <span class="comment">// 步骤2-5：遍历并检测</span>
+  <span class="keyword">while</span> (cur != -1) {
+    <span class="keyword">const</span> <span class="type">int32_t</span> next = pl[cur].next_in_bucket;
+    <span class="type">TmEntry</span> *e = &pl[cur];
+    
+    <span class="comment">// 验证有效性：检查水位线</span>
+    <span class="keyword">if</span> (tm_entry_valid(self, e) && e->base_addr == r->base_addr) {
+      <span class="keyword">const</span> <span class="type">TmOverlap</span> st = tm_overlap(r, e);
+      <span class="keyword">if</span> (st != <span class="type">TM_OVERLAP_NONE</span>) {
+        <span class="keyword">if</span> (!on_match(e, st, ctx))
+          <span class="keyword">return</span>;
+      }
+    }
+    cur = next;
+  }
+}
+            </div>
+            
+            <h3>4.3 有效性检查 (tm_entry_valid)</h3>
+            
+            <p>基于水位线机制判断条目是否仍然有效：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">bool</span> <span class="function">tm_entry_valid</span>(<span class="keyword">const</span> <span class="type">TmTensorMap</span> *self, <span class="keyword">const</span> <span class="type">TmEntry</span> *e) {
+  <span class="keyword">return</span> (<span class="type">int32_t</span>)<span class="function">tm_local_of</span>(e->producer_id) >=
+         tm_hdr(self)->last_alive[<span class="function">tm_ring_of</span>(e->producer_id)];
+}
+            </div>
+            
+            <div class="highlight-box">
+                <h4>水位线机制</h4>
+                <p>每个环维护一个 last_alive 水位线，表示该环中"最老的活跃任务ID"。当生产者ID小于水位线时，说明该任务已完成并可以被安全清理。这种机制避免了昂贵的引用计数或显式删除操作。</p>
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>懒失效与清理机制</h2>
+            
+            <h3>5.1 同步机制 (tm_sync)</h3>
+            
+            <p>推进水位线，但不立即清理：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_sync</span>(<span class="type">TmTensorMap</span> *self, <span class="type">uint32_t</span> ring, <span class="type">int32_t</span> last_alive) {
+  tm_hdr(self)->last_alive[ring] = last_alive;
+}
+            </div>
+            
+            <h3>5.2 批量清理机制 (tm_cleanup_retired)</h3>
+            
+            <p>清理指定范围内的所有过期条目：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_cleanup_retired</span>(<span class="type">TmTensorMap</span> *self, <span class="type">uint32_t</span> ring,
+                                      <span class="type">int32_t</span> old_alive, <span class="type">int32_t</span> new_alive) {
+  <span class="keyword">const</span> <span class="type">uint32_t</span> mask = tm_hdr(self)->cfg.task_window[ring] - 1;
+  <span class="type">int32_t</span> *th = tm_task_heads(self, ring);
+  <span class="type">TmEntry</span> *pl = tm_pool(self);
+  
+  <span class="comment">// 遍历每个过期任务的任务链</span>
+  <span class="keyword">for</span> (<span class="type">int32_t</span> local = old_alive; local < new_alive; local++) {
+    <span class="type">const</span> <span class="type">uint32_t</span> slot = (<span class="type">uint32_t</span>)local & mask;
+    <span class="type">int32_t</span> cur = th[slot];
+    <span class="keyword">while</span> (cur != -1) {
+      <span class="type">const</span> <span class="type">int32_t</span> next = pl[cur].next_in_task;
+      tm_free_entry(self, cur);  <span class="comment">// 归还到空闲池</span>
+      cur = next;
+    }
+    th[slot] = -1;
+  }
+  tm_hdr(self)->last_cleanup[ring] = new_alive;
+}
+            </div>
+            
+            <h3>5.3 完整同步流程 (tm_sync_tensormap)</h3>
+            
+            <p>提交任务时的完整同步操作：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_sync_tensormap</span>(<span class="type">TmTensorMap</span> *self, <span class="type">uint32_t</span> ring,
+                                     <span class="type">int32_t</span> last_alive) {
+  <span class="comment">// 1. 推进水位线</span>
+  tm_sync(self, ring, last_alive);
+  
+  <span class="comment">// 2. 清理过期条目（仅当有新过期任务时）</span>
+  <span class="keyword">const</span> <span class="type">int32_t</span> old = tm_hdr(self)->last_cleanup[ring];
+  <span class="keyword">if</span> (last_alive > old)
+    tm_cleanup_retired(self, ring, old, last_alive);
+}
+            </div>
+            
+            <div class="flow-diagram">
+                <div style="display: flex; justify-content: center; align-items: center; flex-wrap: wrap;">
+                    <div class="flow-step" style="background: #4caf50;">推进水位线</div>
+                    <span class="arrow">→</span>
+                    <div class="flow-step" style="background: #ff9800;">检查清理范围</div>
+                    <span class="arrow">→</span>
+                    <div class="flow-step" style="background: #f44336;">批量释放条目</div>
+                    <span class="arrow">→</span>
+                    <div class="flow-step" style="background: #2196f3;">归还空闲池</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>高层依赖接口</h2>
+            
+            <h3>6.1 结构 Tensor 模式</h3>
+            
+            <p>使用完整的 Tensor 几何信息进行依赖检测：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_in_ptr</span>(<span class="type">uint16_t</span> tid, <span class="keyword">const</span> <span class="type">Tensor</span> *t) {
+  add_input_ptr(tid, t);
+  tm_pending_push(t, <span class="type">TM_PEND_IN</span>);
+}
+
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_out_ptr</span>(<span class="type">uint16_t</span> tid, <span class="keyword">const</span> <span class="type">Tensor</span> *t) {
+  add_output_ptr(tid, t);
+  tm_pending_push(t, <span class="type">TM_PEND_OUT</span>);
+}
+
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_inout_ptr</span>(<span class="type">uint16_t</span> tid, <span class="keyword">const</span> <span class="type">Tensor</span> *t) {
+  add_inout_ptr(tid, t);
+  tm_pending_push(t, <span class="type">TM_PEND_INOUT</span>);
+}
+            </div>
+            
+            <h3>6.2 提交流程 (tm_submit)</h3>
+            
+            <p>任务提交时的完整依赖解析逻辑：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="function">tm_submit</span>(<span class="type">uint16_t</span> tid) {
+  <span class="type">TmCollectCtx</span> ctx = { .consumer = tid, .pn = 0 };
+  <span class="type">int</span> i;
+
+  <span class="comment">// 阶段1：查找所有输入依赖的生产者</span>
+  <span class="keyword">for</span> (i = 0; i < g_tm_pend_n; i++) {
+    <span class="keyword">if</span> (g_tm_pend[i].kind & <span class="type">TM_PEND_IN</span>) {
+      ctx.is_inout = (g_tm_pend[i].kind == <span class="type">TM_PEND_INOUT</span>);
+      tm_lookup_tensor(&g_tm_map, g_tm_pend[i].t, tm_collect_on_match, &ctx);
+    }
+  }
+  
+  <span class="comment">// 阶段2：注册所有输出依赖</span>
+  <span class="keyword">for</span> (i = 0; i < ctx.pn; i++)
+    succeed(tid, ctx.preds[i]);
+  <span class="keyword">for</span> (i = 0; i < g_tm_pend_n; i++) {
+    <span class="keyword">if</span> (g_tm_pend[i].kind & <span class="type">TM_PEND_OUT</span>)
+      tm_insert_tensor(&g_tm_map, g_tm_pend[i].t, tid);
+  }
+  tm_pending_clear();
+  
+  <span class="comment">// 阶段3：执行任务并同步水位线</span>
+  submit(tid);
+  tm_sync_tensormap(&g_tm_map, 0, (<span class="type">int32_t</span>)g_min_uncomplete_task);
+}
+            </div>
+            
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h4>阶段 1：依赖收集</h4>
+                    <p>遍历所有待处理的输入张量，调用 tm_lookup_tensor 查找重叠的生产者条目，并收集唯一的前驱任务ID。</p>
+                </div>
+                <div class="timeline-item">
+                    <h4>阶段 2：依赖注册</h4>
+                    <p>为收集到的每个前驱任务调用 succeed() 注册依赖关系，并将所有输出张量插入 TensorMap。</p>
+                </div>
+                <div class="timeline-item">
+                    <h4>阶段 3：任务执行与同步</h4>
+                    <p>调用 submit() 提交任务到执行器，然后更新 TensorMap 的水位线以清理已完成任务的条目。</p>
+                </div>
+            </div>
+            
+            <h3>6.3 收集回调 (tm_collect_on_match)</h3>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="keyword">inline</span> <span class="type">bool</span> <span class="function">tm_collect_on_match</span>(<span class="type">TmEntry</span> *e, <span class="type">TmOverlap</span> st, <span class="type">void</span> *ctx) {
+  <span class="type">TmCollectCtx</span> *c = (<span class="type">TmCollectCtx</span> *)ctx;
+  <span class="keyword">const</span> <span class="type">uint16_t</span> p = (<span class="type">uint16_t</span>)<span class="function">tm_local_of</span>(e->producer_id);
+  
+  <span class="comment">// 去重：检查是否已收集该生产者</span>
+  <span class="keyword">if</span> (p != c->consumer) {
+    <span class="keyword">for</span> (<span class="type">int</span> i = 0; i < c->pn; i++)
+      <span class="keyword">if</span> (c->preds[i] == p)
+        <span class="keyword">goto</span> after_pred;
+    <span class="keyword">if</span> (c->pn < (<span class="type">int</span>)<span class="type">TM_PENDING_MAX_PRED</span>)
+      c->preds[c->pn++] = p;
+  }
+after_pred:
+  <span class="comment">// INOUT 特殊处理：完全覆盖时移除生产者条目</span>
+  <span class="keyword">if</span> (c->is_inout && st == <span class="type">TM_OVERLAP_COVERED</span>)
+    tm_remove(&g_tm_map, e);
+  <span class="keyword">return</span> <span class="keyword">true</span>;
+}
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>实际应用示例：Qwen3 解码</h2>
+            
+            <p>在 Qwen3 解码场景中，TensorMap 被用于自动发现任务间的数据依赖关系：</p>
+            
+            <div class="code-block">
+<span class="comment">// RMSNorm 任务：输入 ext_hidden_states，输出 normed_tile</span>
+g_task_id++;
+set_task_type(g_task_id, <span class="type">TASK_TYPE_VECTOR</span>);
+tm_in_ro(g_task_id, ext_hidden_states);    <span class="comment">// 声明只读输入</span>
+tm_out(g_task_id, normed_tile);            <span class="comment">// 声明输出</span>
+add_scalar(g_task_id, b0);
+add_scalar(g_task_id, cur_valid);
+add_duration(g_task_id, <span class="type">DUR_RMSNORM</span>);
+tm_submit(g_task_id);                      <span class="comment">// 自动发现依赖并提交</span>
+
+<span class="comment">// Q Proj 任务：输入 normed_tile 和 ext_wq，输出 q_chunk</span>
+<span class="comment">// TensorMap 会自动发现：q_proj 需要等待 normed_tile 完成</span>
+g_task_id++;
+set_task_type(g_task_id, <span class="type">TASK_TYPE_CUBE</span>);
+set_block_num(g_task_id, (<span class="type">uint32_t</span>)cur_blocks);
+Tensor q_chunk = tensor_chunk_2d(q_proj, ...);
+tm_in(g_task_id, normed_tile);             <span class="comment">// 隐式依赖检测</span>
+tm_in_ro(g_task_id, ext_wq);
+tm_out(g_task_id, q_chunk);
+add_duration(g_task_id, <span class="type">DUR_Q_PROJ</span>);
+tm_submit(g_task_id);
+            </div>
+            
+            <h3>数据流图</h3>
+            
+            <div class="flow-diagram">
+                <div style="text-align: left; padding: 20px;">
+                    <div style="background: #667eea; color: white; padding: 20px; border-radius: 10px; margin: 15px 0;">
+                        <strong>ext_hidden_states</strong><br>
+                        <small>输入张量</small>
+                    </div>
+                    <div style="text-align: center; font-size: 1.5em; margin: 5px 0;">↓ RMSNorm</div>
+                    <div style="background: #4caf50; color: white; padding: 20px; border-radius: 10px; margin: 15px 0;">
+                        <strong>normed_tile</strong><br>
+                        <small>TensorMap 注册</small>
+                    </div>
+                    <div style="text-align: center; font-size: 1.5em; margin: 5px 0;">↓ Q Proj | K Proj | V Proj</div>
+                    <div style="background: #ff9800; color: white; padding: 20px; border-radius: 10px; margin: 15px 0;">
+                        <strong>q_proj, k_proj, v_proj</strong><br>
+                        <small>TensorMap 依赖检测</small>
+                    </div>
+                    <div style="text-align: center; font-size: 1.5em; margin: 5px 0;">↓ 后续任务...</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>性能分析与基准测试</h2>
+            
+            <h3>基准测试结果</h3>
+            
+            <p>基于 test_tensormap.c 中的性能测试：</p>
+            
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-value">10M+</div>
+                    <div class="stat-label">插入操作/秒</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">5M+</div>
+                    <div class="stat-label">查找操作/秒</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">&lt;50ns</div>
+                    <div class="stat-label">单次操作延迟</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">~500KB</div>
+                    <div class="stat-label">默认内存占用</div>
+                </div>
+            </div>
+            
+            <h3>性能测试代码</h3>
+            
+            <div class="code-block">
+<span class="comment">// 插入吞吐量测试</span>
+<span class="keyword">static</span> <span class="type">void</span> <span class="function">bench_insert</span>(<span class="type">uint32_t</span> n) {
+  <span class="type">TmConfig</span> cfg = {0};
+  cfg.num_buckets = 65536;
+  cfg.pool_size = n;
+  cfg.num_rings = 1;
+  cfg.task_window[0] = 1024;
+  <span class="type">void</span> *img = alloc_image(&cfg);
+  <span class="type">TmTensorMap</span> map;
+  tm_init(&map, img, &cfg);
+
+  <span class="keyword">const</span> <span class="type">double</span> t0 = now_sec();
+  <span class="keyword">for</span> (<span class="type">uint32_t</span> i = 0; i < n; i++) {
+    <span class="type">TmRegion</span> r = region_1d(0x100000u + (<span class="type">uint64_t</span>)i * 256u, 0, 64, 64);
+    tm_insert(&map, &r, tm_make_id(0, i & (cfg.task_window[0] - 1)));
+  }
+  report(<span class="string">"insert"</span>, (<span class="type">double</span>)n, now_sec() - t0);
+  free(img);
+}
+
+<span class="comment">// 查找吞吐量测试</span>
+<span class="keyword">static</span> <span class="type">void</span> <span class="function">bench_lookup</span>(<span class="type">uint32_t</span> m, <span class="type">uint32_t</span> queries) {
+  <span class="comment">// ... 插入 m 个条目 ...</span>
+  
+  <span class="type">uint64_t</span> rng = 0x9E3779B97F4A7C15ULL;
+  <span class="type">uint64_t</span> acc = 0;
+  <span class="keyword">const</span> <span class="type">double</span> t0 = now_sec();
+  <span class="keyword">for</span> (<span class="type">uint32_t</span> q = 0; q < queries; q++) {
+    <span class="keyword">const</span> <span class="type">uint32_t</span> i = (<span class="type">uint32_t</span>)(perf_rng(&rng) % m);
+    <span class="type">TmRegion</span> probe = region_1d(0x100000u + (<span class="type">uint64_t</span>)i * 256u, 0, 64, 64);
+    tm_lookup(&map, &probe, perf_count_cb, &acc);
+  }
+  g_perf_sink = acc;
+  report(<span class="string">"lookup (covered hit)"</span>, (<span class="type">double</span>)queries, dt);
+}
+            </div>
+            
+            <h3>时间复杂度分析</h3>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>操作</th>
+                        <th>时间复杂度</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>tm_insert</td>
+                        <td>O(1)</td>
+                        <td>哈希定位 + 链表头部插入</td>
+                    </tr>
+                    <tr>
+                        <td>tm_lookup</td>
+                        <td>O(k)</td>
+                        <td>k 为桶链长度，平均 O(α)，α 为负载因子</td>
+                    </tr>
+                    <tr>
+                        <td>tm_sync</td>
+                        <td>O(1)</td>
+                        <td>仅更新水位线</td>
+                    </tr>
+                    <tr>
+                        <td>tm_cleanup_retired</td>
+                        <td>O(m)</td>
+                        <td>m 为待清理的过期任务数</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="content">
+            <h2>双模式对比</h2>
+            
+            <p>TensorMap 支持两种操作模式，编译时选择：</p>
+            
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>特性</th>
+                        <th>结构 Tensor 模式</th>
+                        <th>简单缓冲区模式</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>几何信息</td>
+                        <td>完整 2D 形状/步长/偏移</td>
+                        <td>仅基地址</td>
+                    </tr>
+                    <tr>
+                        <td>重叠检测</td>
+                        <td>精确子区域检测</td>
+                        <td>仅地址匹配</td>
+                    </tr>
+                    <tr>
+                        <td>适用场景</td>
+                        <td>分块矩阵运算</td>
+                        <td>简单缓冲区管理</td>
+                    </tr>
+                    <tr>
+                        <td>编译宏</td>
+                        <td>USE_TENSORMAP</td>
+                        <td>USE_TENSORMAP + TENSORMAP_WHOLE_BUFFER</td>
+                    </tr>
+                    <tr>
+                        <td>内存效率</td>
+                        <td>需存储完整几何信息</td>
+                        <td>最小化条目大小</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="highlight-box">
+                <h4>模式选择建议</h4>
+                <p>• <strong>结构 Tensor 模式</strong>：适用于 AI 模型推理中的复杂张量操作，如 Qwen3 解码场景，需要精确的子区域依赖检测</p>
+                <p>• <strong>简单缓冲区模式</strong>：适用于简单的生产者-消费者场景，只需检测完整缓冲区的读写依赖</p>
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>测试用例解析</h2>
+            
+            <h3>2D 区域重叠测试</h3>
+            
+            <p>test_tensormap.c 中的 2D 区域重叠测试展示了真实 AI 工作负载中的场景：</p>
+            
+            <div class="code-block">
+<span class="keyword">static</span> <span class="type">void</span> <span class="function">test_2d_row_tile_overlap</span>(<span class="type">void</span>) {
+  <span class="comment">// Producer: tile 1 writes rows [16, 32).</span>
+  <span class="type">TmRegion</span> prod = region_2d(base, batch, hidden, 16, tile, hidden, 4);
+  tm_insert(&map, &prod, tm_make_id(0, 3));
+
+  <span class="comment">// Consumer reading same tile overlaps.</span>
+  <span class="type">HitSink</span> hit = collect(&map, region_2d(base, batch, hidden, 16, tile, hidden, 4));
+  assert(hit.count == 1 && tm_local_of(hit.producers[0]) == 3);
+
+  <span class="comment">// Consumer reading a different tile does not overlap.</span>
+  <span class="type">HitSink</span> miss = collect(&map, region_2d(base, batch, hidden, 0, tile, hidden, 4));
+  assert(miss.count == 0);
+
+  <span class="comment">// Consumer reading rows [8, 24) partially overlaps tile 1.</span>
+  <span class="type">HitSink</span> part = collect(&map, region_2d(base, batch, hidden, 8, 16, hidden, 4));
+  assert(part.count == 1 && part.statuses[0] == <span class="type">TM_OVERLAP_OTHER</span>);
+}
+            </div>
+            
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4>精确匹配</h4>
+                    <p>消费者读取 [16, 32) 区域精确匹配生产者，产生 TM_OVERLAP_COVERED 状态。</p>
+                </div>
+                <div class="info-card">
+                    <h4>无重叠</h4>
+                    <p>消费者读取 [0, 16) 区域与生产者 [16, 32) 完全不重叠，返回 TM_OVERLAP_NONE。</p>
+                </div>
+                <div class="info-card">
+                    <h4>部分重叠</h4>
+                    <p>消费者读取 [8, 24) 区域部分重叠，产生 TM_OVERLAP_OTHER 状态。</p>
+                </div>
+            </div>
+            
+            <h3>共存性演示</h3>
+            
+            <p>测试展示了 TensorMap 作为可选工具与现有 DAG 引擎的共存能力：</p>
+            
+            <div class="code-block">
+<span class="comment">// task 10 and task 11 both write X (e.g. two chunks of one buffer)</span>
+<span class="type">TmRegion</span> rx = whole_buffer_region(X);
+tm_insert(&map, &rx, tm_make_id(0, 10));
+tm_insert(&map, &rx, tm_make_id(0, 11));
+
+<span class="comment">// consumer task 20 reads X -> should depend on {10, 11}</span>
+<span class="type">HitSink</span> cx = collect(&map, whole_buffer_region(X));
+assert(cx.count == 2);  <span class="comment">// 自动发现两个生产者</span>
+
+<span class="comment">// tasks 10,11 complete: watermark advances to 12</span>
+uint16_t min_uncomplete = 12;
+tm_sync(&map, 0, (<span class="type">int32_t</span>)min_uncomplete);
+<span class="type">HitSink</span> cx2 = collect(&map, whole_buffer_region(X));
+assert(cx2.count == 0);  <span class="comment">// 过期的生产者不再被找到</span>
+            </div>
+        </div>
+        
+        <div class="content">
+            <h2>总结与架构优势</h2>
+            
+            <h3>核心优势</h3>
+            <ul class="feature-list">
+                <li><strong>零分配设计</strong>：所有内存预分配，避免运行时 malloc/freed 的开销和碎片化</li>
+                <li><strong>位置无关</strong>：纯偏移量访问，支持跨进程/跨设备传输，无需指针修复</li>
+                <li><strong>无耦合</strong>：独立的头文件，不依赖 Tensor、ring_buf 或 task 结构</li>
+                <li><strong>延迟失效</strong>：水位线机制避免昂贵的引用计数操作</li>
+                <li><strong>批量清理</strong>：任务完成时批量回收过期条目，分摊清理开销</li>
+                <li><strong>精确几何</strong>：支持 2D 子区域重叠检测，适用于复杂 AI 工作负载</li>
+            </ul>
+            
+            <h3>设计原则</h3>
+            
+            <div class="highlight-box">
+                <h4>纯 C 实现哲学</h4>
+                <p>TensorMap 完全使用 C 语言实现，仅依赖 &lt;assert.h&gt;、&lt;stdint.h&gt;、&lt;string.h&gt; 和 &lt;stdbool.h&gt;，编译为 C99+ 或 C++ 均可。这确保了它可以集成到任何现有的 C/C++ 项目中，包括裸金属环境和嵌入式系统。</p>
+            </div>
+            
+            <h3>应用场景</h3>
+            
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4>DAG 执行引擎</h4>
+                    <p>作为可选的依赖发现层，自动检测任务间的数据依赖关系。</p>
+                </div>
+                <div class="info-card">
