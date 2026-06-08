@@ -82,7 +82,7 @@ static inline Tensor alloc_tensors(uint32_t shape[], int dim, int bytes)
 {
     size_t size = (size_t)shape[0] * (size_t)shape[1] * (size_t)dim * (size_t)bytes;
     uint64_t base = (uint64_t)(uintptr_t)mem_pool_alloc(&g_mem_pool, size);
-#if defined(USE_TENSORMAP) && !defined(TENSORMAP_WHOLE_BUFFER)
+#ifdef USE_TENSORMAP
     return tensor_make_2d(base, shape[0], shape[1], (dtype_t)bytes);
 #else
     return (Tensor)base;

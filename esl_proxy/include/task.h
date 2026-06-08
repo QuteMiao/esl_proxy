@@ -51,17 +51,17 @@ typedef struct {
 } task_state;
 
 struct task_desc {
-    uint16_t    id;        /* Task identifier (2 bytes) */
-    task_type_t type;      /* CUBE/VECTOR/MIX */
-    org_mode_t  mode;      /* SINGLE/GROUP/SPMD_SYNC/SPMD_ASYNC */
-    void       *kernel;    /* KERNEL code pointer */
-    uint32_t    index;     /* base INDEX for SPMD */
-    uint32_t    count;     /* number of instances */
-    uint64_t    data[16];  
-    int64_t     scalar[32];
-    uint16_t    tensor_cnt;
-    uint16_t    scalar_cnt;
-    uint16_t    duration;
+    uint16_t       id;          /* ring-buffer task id */
+    task_type_t    type;        /* CUBE / VECTOR / MIX */
+    org_mode_t     mode;        /* SINGLE / GROUP / SPMD_SYNC / SPMD_ASYNC */
+    void          *kernel;      /* device kernel entry, NULL if unset */
+    uint32_t       index;       /* SPMD base block index */
+    uint32_t       count;       /* SPMD instance count (block_num) */
+    uint64_t       data[16];    /* tensor addresses (Tensor handles) */
+    int64_t        scalar[32];  /* scalar kernel arguments */
+    uint16_t       tensor_cnt;  /* number of valid data[] entries */
+    uint16_t       scalar_cnt;  /* number of valid scalar[] entries */
+    uint16_t       duration;    /* estimated kernel cycles (low 16 bits) */
 };
 
 struct succ_list {

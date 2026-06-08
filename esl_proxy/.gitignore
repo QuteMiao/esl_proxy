@@ -10,6 +10,7 @@ build/
 bin/
 obj/
 out/
+a.out
 
 # IDE
 .vscode/

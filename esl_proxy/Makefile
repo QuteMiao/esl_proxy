@@ -19,7 +19,7 @@
 #   make NO_DEPS=1 CASE=qwen3_dynamic_tensormap.h run
 #   make MAIN_LOG=0 CASE=paged_attention_unroll.h run
 #   DEP_DUMP=1 DEP_DUMP_FILE=build/dep_ ./bin/esl_proxy
-#   make test-dep-dump
+#   make test-dep-dump   # builds tools/dep_dump tests
 #   make clean
 #
 # CASE selects which cases/*.h orchestration header main.c compiles in.
@@ -41,7 +41,9 @@ QWEN3_CASES := qwen3_dynamic_manual_scope.h qwen3_dynamic_tensormap.h
 CC       := cc
 # -MMD -MP emits a .d alongside each .o listing the headers it included, so a
 # change to any include/*.h (e.g. tensormap.h) rebuilds the dependent objects.
-CFLAGS   := -std=c11 -Wall -Wextra -pedantic -O3 -I include -I cases -DORCH_CASE=$(CASE) -MMD -MP
+DEP_DUMP_DIR := ../tools/dep_dump
+
+CFLAGS   := -std=c11 -Wall -Wextra -pedantic -O3 -D_POSIX_C_SOURCE=199309L -I include -I cases -I$(DEP_DUMP_DIR) -DORCH_CASE=$(CASE) -MMD -MP
 
 # -latomic is needed on Linux but not on macOS (clang)
 UNAME_S  := $(shell uname -s)
@@ -86,19 +88,21 @@ SRCS := \
 	src/shm.c
 
 ifeq ($(DEP_DUMP),1)
-SRCS += src/dep_dump.c
+DEP_DUMP_OBJ := $(OBJ_DIR)/dep_dump.o
+else
+DEP_DUMP_OBJ :=
 endif
 
-OBJS := $(SRCS:src/%.c=$(OBJ_DIR)/%.o)
+OBJS := $(SRCS:src/%.c=$(OBJ_DIR)/%.o) $(DEP_DUMP_OBJ)
 DEPS := $(OBJS:.o=.d)
 
 # Rebuild orchestration when case or orch-related flags change.
 ORCH_STAMP := $(OBJ_DIR)/.orch-stamp
 ORCH_CONFIG := case=$(CASE) tier=$(QWEN3_SPMD_TIER) dep=$(DEP_DUMP) nodeps=$(NO_DEPS) log=$(MAIN_LOG)
 
-TEST_CFLAGS := -std=c11 -Wall -Wextra -pedantic -O0 -I include -I cases -DUSE_TENSORMAP -DDEP_DUMP=1
+TEST_CFLAGS := -std=c11 -Wall -Wextra -pedantic -O0 -D_POSIX_C_SOURCE=199309L -I include -I cases -I$(DEP_DUMP_DIR) -DUSE_TENSORMAP -DDEP_DUMP=1
 
-.PHONY: all run clean force test-dep-dump
+.PHONY: all run clean force test-dep-dump test-dep-dump-paged-attention test-tensormap bench-tensormap
 
 all: $(TARGET)
 
@@ -106,6 +110,9 @@ $(TARGET): $(OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
 
 $(OBJ_DIR)/%.o: src/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/dep_dump.o: $(DEP_DUMP_DIR)/dep_dump.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Rebuild main.o whenever orchestration config changes.
@@ -120,16 +127,34 @@ $(OBJ_DIR) $(BIN_DIR):
 run: all
 	WORKER_LOG=$(WORKER_LOG) DEP_DUMP=$(DEP_DUMP) $(TARGET)
 
-test-dep-dump: $(BIN_DIR)/test_dep_dump $(BIN_DIR)/test_dep_dump_qwen3_edges
+test-dep-dump: $(BIN_DIR)/test_dep_dump $(BIN_DIR)/test_dep_dump_qwen3_edges $(BIN_DIR)/test_dep_dump_paged_attention_edges
 	$(BIN_DIR)/test_dep_dump
 	$(BIN_DIR)/test_dep_dump_qwen3_edges
+	$(BIN_DIR)/test_dep_dump_paged_attention_edges
 
-$(BIN_DIR)/test_dep_dump: tests/test_dep_dump.c src/dep_dump.c | $(BIN_DIR)
-	$(CC) $(TEST_CFLAGS) tests/test_dep_dump.c src/dep_dump.c -o $@ $(LDFLAGS)
+test-dep-dump-paged-attention: $(BIN_DIR)/test_dep_dump_paged_attention_edges
+	$(BIN_DIR)/test_dep_dump_paged_attention_edges
+
+test-tensormap: $(BIN_DIR)/test_tensormap
+	$(BIN_DIR)/test_tensormap
+
+TEST_TENSORMAP_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -O3 -D_POSIX_C_SOURCE=200809L -I include -DUSE_TENSORMAP
+
+$(BIN_DIR)/test_tensormap: tests/test_tensormap.c | $(BIN_DIR)
+	$(CC) $(TEST_TENSORMAP_CFLAGS) tests/test_tensormap.c -o $@ $(LDFLAGS)
+
+bench-tensormap:
+	CCACHE_DISABLE=1 ../scripts/bench_tensormap_cases.sh Final
+
+$(BIN_DIR)/test_dep_dump: $(DEP_DUMP_DIR)/tests/test_dep_dump.c $(DEP_DUMP_DIR)/dep_dump.c | $(BIN_DIR)
+	$(CC) $(TEST_CFLAGS) $(DEP_DUMP_DIR)/tests/test_dep_dump.c $(DEP_DUMP_DIR)/dep_dump.c -o $@ $(LDFLAGS)
 
 QWEN3_TEST_TIER ?= 4
-$(BIN_DIR)/test_dep_dump_qwen3_edges: tests/test_dep_dump_qwen3_edges.c src/dep_dump.c | $(BIN_DIR)
-	$(CC) $(TEST_CFLAGS) -DQWEN3_SPMD_TIER=$(QWEN3_TEST_TIER) tests/test_dep_dump_qwen3_edges.c src/dep_dump.c -o $@ $(LDFLAGS)
+$(BIN_DIR)/test_dep_dump_qwen3_edges: $(DEP_DUMP_DIR)/tests/test_dep_dump_qwen3_edges.c $(DEP_DUMP_DIR)/dep_dump.c | $(BIN_DIR)
+	$(CC) $(TEST_CFLAGS) -DQWEN3_SPMD_TIER=$(QWEN3_TEST_TIER) $(DEP_DUMP_DIR)/tests/test_dep_dump_qwen3_edges.c $(DEP_DUMP_DIR)/dep_dump.c -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/test_dep_dump_paged_attention_edges: $(DEP_DUMP_DIR)/tests/test_dep_dump_paged_attention_edges.c $(DEP_DUMP_DIR)/dep_dump.c | $(BIN_DIR)
+	$(CC) $(TEST_CFLAGS) $(DEP_DUMP_DIR)/tests/test_dep_dump_paged_attention_edges.c $(DEP_DUMP_DIR)/dep_dump.c -o $@ $(LDFLAGS)
 
 clean:
 	rm -rf build $(BIN_DIR)

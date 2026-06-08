@@ -76,7 +76,9 @@ make CASE=qwen3_dynamic_manual_scope.h QWEN3_SPMD_TIER=0 run
 ```bash
 make clean                                    # 清理 build/、bin/
 make CASE=<case.h> all                        # 只编译不运行
-make test-dep-dump                            # 依赖边 dump 单元测试
+make test-dep-dump                            # tools/dep_dump 依赖边校验测试
+make test-tensormap                           # tensormap 单元测试 + 微基准
+make bench-tensormap                          # 编排 case 性能对比（写入 report/proxy/）
 
 # 运行时选项
 make CASE=qwen3_dynamic_tensormap.h DEP_DUMP=1 run   # 编排后导出依赖边

@@ -1,8 +1,8 @@
 /*
- * dep_dump.h - Post-orchestration static DAG export
+ * dep_dump.h - Post-orchestration static DAG export (tools/dep_dump)
  *
- * Snapshot producer->consumer edges from ring buffer successor lists.
- * Enable at compile time via DEP_DUMP=1; trigger at runtime via DEP_DUMP=1 env.
+ * Snapshot producer->consumer edges from esl_proxy ring buffer successor lists.
+ * Linked into bin/esl_proxy when DEP_DUMP=1; tests live in tools/dep_dump/tests/.
  */
 
 #ifndef DEP_DUMP_H

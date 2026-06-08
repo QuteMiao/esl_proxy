@@ -6,6 +6,9 @@
  * C11 standard with _Atomic for lock-free concurrency.
  */
 
+#define _POSIX_C_SOURCE 199309L
+
+#include "conf.h"
 #include <time.h>
 #include "log.h"
 #include "executor.h"

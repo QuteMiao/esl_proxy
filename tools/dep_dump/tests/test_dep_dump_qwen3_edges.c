@@ -61,23 +61,9 @@ static inline Tensor tensor_view(Tensor t, uint32_t dim, uint32_t off, uint32_t 
     return t;
 }
 
-static inline Tensor tensor_chunk_2d(Tensor buf, uint32_t row0, uint32_t nrows,
-                                     uint32_t col0, uint32_t ncols, dtype_t dtype)
+static inline Tensor tensor_row_view(Tensor t, uint32_t row0, uint32_t nrows)
 {
-    const uint64_t es = (uint64_t)dtype;
-    const uint64_t off =
-        (uint64_t)row0 * buf.strides[0] + (uint64_t)col0 * buf.strides[1];
-    return tensor_make_2d(tensor_base(buf) + off * es, nrows, ncols, dtype);
-}
-
-static inline Tensor tensor_row_chunk(Tensor buf, uint32_t row0, uint32_t nrows)
-{
-    return tensor_chunk_2d(buf, row0, nrows, 0, buf.storage[1], buf.dtype);
-}
-
-static inline Tensor tensor_col_chunk(Tensor buf, uint32_t col0, uint32_t ncols)
-{
-    return tensor_chunk_2d(buf, 0, buf.storage[0], col0, ncols, buf.dtype);
+    return tensor_view(t, 0u, row0, nrows);
 }
 
 static inline void add_input_ptr(uint16_t tid, const Tensor *t) { (void)tid; (void)t; }

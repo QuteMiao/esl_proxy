@@ -64,6 +64,11 @@ static inline int qwen3_blocks_per_task(int total_chunks) {
   return total_chunks < target ? total_chunks : target;
 }
 
+/* Same-base sub-views for tensormap (offsets/shapes only; do not rebase). */
+static inline Tensor tensor_col_view(Tensor t, uint32_t col0, uint32_t ncols) {
+  return tensor_view(t, 1u, col0, ncols);
+}
+
 void aicpu_orchestration_entry(const uint64_t orch_args) {
   Tensor ext_hidden_states = tensor_from_base(orch_args + 0);
   Tensor ext_input_rms_weight = tensor_from_base(orch_args + 1);
@@ -126,12 +131,12 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor q_chunk = tensor_chunk_2d(q_proj, (uint32_t)b0, 16u,
-                                       (uint32_t)(base * 256u),
-                                       (uint32_t)(cur_blocks * 256u), FLOAT32);
+      Tensor q0 = tensor_row_view(q_proj, (uint32_t)b0, 16u);
+      Tensor q_piece = tensor_col_view(q0, (uint32_t)(base * 256u),
+                                       (uint32_t)(cur_blocks * 256u));
       tm_in(g_task_id, normed_tile);
       tm_in_ro(g_task_id, ext_wq);
-      tm_out(g_task_id, q_chunk);
+      tm_out(g_task_id, q_piece);
       add_scalar(g_task_id, b0);
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_Q_PROJ);
@@ -147,12 +152,12 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor k_chunk = tensor_chunk_2d(k_proj, (uint32_t)b0, 16u,
-                                       (uint32_t)(base * 128u),
-                                       (uint32_t)(cur_blocks * 128u), FLOAT32);
+      Tensor k0 = tensor_row_view(k_proj, (uint32_t)b0, 16u);
+      Tensor k_piece = tensor_col_view(k0, (uint32_t)(base * 128u),
+                                       (uint32_t)(cur_blocks * 128u));
       tm_in(g_task_id, normed_tile);
       tm_in_ro(g_task_id, ext_wk);
-      tm_out(g_task_id, k_chunk);
+      tm_out(g_task_id, k_piece);
       add_scalar(g_task_id, b0);
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_K_PROJ);
@@ -168,12 +173,12 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor v_chunk = tensor_chunk_2d(v_proj, (uint32_t)b0, 16u,
-                                       (uint32_t)(base * 128u),
-                                       (uint32_t)(cur_blocks * 128u), FLOAT32);
+      Tensor v0_tile = tensor_row_view(v_proj, (uint32_t)b0, 16u);
+      Tensor v_piece = tensor_col_view(v0_tile, (uint32_t)(base * 128u),
+                                       (uint32_t)(cur_blocks * 128u));
       tm_in(g_task_id, normed_tile);
       tm_in_ro(g_task_id, ext_wv);
-      tm_out(g_task_id, v_chunk);
+      tm_out(g_task_id, v_piece);
       add_scalar(g_task_id, b0);
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_V_PROJ);
@@ -185,10 +190,10 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       spin_wait();
     }
     set_task_type(g_task_id, TASK_TYPE_VECTOR);
-    Tensor k0_norm = tensor_row_chunk(k_proj_norm, (uint32_t)b0, 16u);
-    Tensor q0_norm = tensor_row_chunk(q_proj_norm, (uint32_t)b0, 16u);
-    Tensor q0_in = tensor_row_chunk(q_proj, (uint32_t)b0, 16u);
-    Tensor k0_in = tensor_row_chunk(k_proj, (uint32_t)b0, 16u);
+    Tensor k0_norm = tensor_row_view(k_proj_norm, (uint32_t)b0, 16u);
+    Tensor q0_norm = tensor_row_view(q_proj_norm, (uint32_t)b0, 16u);
+    Tensor q0_in = tensor_row_view(q_proj, (uint32_t)b0, 16u);
+    Tensor k0_in = tensor_row_view(k_proj, (uint32_t)b0, 16u);
     tm_out(g_task_id, k0_norm);
     tm_out(g_task_id, q0_norm);
     tm_in(g_task_id, q0_in);
@@ -221,9 +226,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       spin_wait();
     }
     set_task_type(g_task_id, TASK_TYPE_VECTOR);
-    Tensor k0_norm = tensor_row_chunk(k_proj_norm, (uint32_t)b_tile0, 16u);
-    Tensor v0 = tensor_row_chunk(v_proj, (uint32_t)b_tile0, 16u);
-    Tensor q0_norm = tensor_row_chunk(q_proj_norm, (uint32_t)b_tile0, 16u);
+    Tensor k0_norm = tensor_row_view(k_proj_norm, (uint32_t)b_tile0, 16u);
+    Tensor v0 = tensor_row_view(v_proj, (uint32_t)b_tile0, 16u);
+    Tensor q0_norm = tensor_row_view(q_proj_norm, (uint32_t)b_tile0, 16u);
     tm_out(g_task_id, q_padded_local);
     tm_out(g_task_id, k_cache_local);
     tm_out(g_task_id, v_cache_local);
@@ -249,11 +254,11 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor raw_scores_chunk =
-          tensor_row_chunk(all_raw_scores, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
+      Tensor raw_scores_piece =
+          tensor_row_view(all_raw_scores, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
       tm_in(g_task_id, q_padded_local);
-      tm_out(g_task_id, raw_scores_chunk);
+      tm_out(g_task_id, raw_scores_piece);
       tm_in_ro(g_task_id, ext_block_table);
       tm_in(g_task_id, k_cache_local);
       add_scalar(g_task_id, b);
@@ -273,22 +278,22 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_VECTOR);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor cur_li_chunk =
-          tensor_row_chunk(all_cur_li, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      Tensor cur_mi_chunk =
-          tensor_row_chunk(all_cur_mi, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      Tensor exp_padded_chunk =
-          tensor_row_chunk(all_exp_padded, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      Tensor raw_scores_chunk =
-          tensor_row_chunk(all_raw_scores, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      tm_out(g_task_id, cur_li_chunk);
-      tm_out(g_task_id, cur_mi_chunk);
-      tm_out(g_task_id, exp_padded_chunk);
-      tm_in(g_task_id, raw_scores_chunk);
+      Tensor cur_li_piece =
+          tensor_row_view(all_cur_li, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      Tensor cur_mi_piece =
+          tensor_row_view(all_cur_mi, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      Tensor exp_padded_piece =
+          tensor_row_view(all_exp_padded, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      Tensor raw_scores_piece =
+          tensor_row_view(all_raw_scores, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      tm_out(g_task_id, cur_li_piece);
+      tm_out(g_task_id, cur_mi_piece);
+      tm_out(g_task_id, exp_padded_piece);
+      tm_in(g_task_id, raw_scores_piece);
       add_scalar(g_task_id, 8);     // (1024+127)/128: KV context blocks
       add_scalar(g_task_id, 1024);  // context length (tokens)
       add_scalar(g_task_id, base);
@@ -305,15 +310,15 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor oi_tmp_chunk =
-          tensor_row_chunk(all_oi_tmp, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      Tensor exp_padded_chunk =
-          tensor_row_chunk(all_exp_padded, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      tm_out(g_task_id, oi_tmp_chunk);
+      Tensor oi_tmp_piece =
+          tensor_row_view(all_oi_tmp, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      Tensor exp_padded_piece =
+          tensor_row_view(all_exp_padded, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      tm_out(g_task_id, oi_tmp_piece);
       tm_in_ro(g_task_id, ext_block_table);
-      tm_in(g_task_id, exp_padded_chunk);
+      tm_in(g_task_id, exp_padded_piece);
       tm_in(g_task_id, v_cache_local);
       add_scalar(g_task_id, 8);       // (1024+127)/128: KV context blocks
       add_scalar(g_task_id, b * 32);  // block_table row offset for batch b
@@ -331,22 +336,22 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_VECTOR);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor oi_tmp_chunk =
-          tensor_row_chunk(all_oi_tmp, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      Tensor cur_mi_chunk =
-          tensor_row_chunk(all_cur_mi, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      Tensor cur_li_chunk =
-          tensor_row_chunk(all_cur_li, (uint32_t)(base * 1024),
-                           (uint32_t)(cur_blocks * 1024));
-      Tensor attn_out_chunk = tensor_view(
+      Tensor oi_tmp_piece =
+          tensor_row_view(all_oi_tmp, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      Tensor cur_mi_piece =
+          tensor_row_view(all_cur_mi, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      Tensor cur_li_piece =
+          tensor_row_view(all_cur_li, (uint32_t)(base * 1024),
+                          (uint32_t)(cur_blocks * 1024));
+      Tensor attn_out_piece = tensor_view(
           tensor_view(attn_out, 0u, (uint32_t)b, 1u), 1u,
           (uint32_t)(base * 1280u), (uint32_t)(cur_blocks * 1280u));
-      tm_in(g_task_id, oi_tmp_chunk);
-      tm_in(g_task_id, cur_mi_chunk);
-      tm_in(g_task_id, cur_li_chunk);
-      tm_inout(g_task_id, attn_out_chunk);
+      tm_in(g_task_id, oi_tmp_piece);
+      tm_in(g_task_id, cur_mi_piece);
+      tm_in(g_task_id, cur_li_piece);
+      tm_inout(g_task_id, attn_out_piece);
       add_scalar(g_task_id, 8);  // (1024+127)/128: KV context blocks
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_ONLINE_SOFTMAX);
@@ -373,20 +378,20 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_MIX);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor hidden_states_chunk =
-          tensor_col_chunk(ext_hidden_states, (uint32_t)(base * 128u),
-                           (uint32_t)(cur_blocks * 128u));
+      Tensor hidden_states_piece =
+          tensor_col_view(ext_hidden_states, (uint32_t)(base * 128u),
+                          (uint32_t)(cur_blocks * 128u));
       Tensor attn_out_tile =
           tensor_view(attn_out, 0u, (uint32_t)b0, (uint32_t)cur_valid);
-      Tensor wo_chunk = tensor_col_chunk(ext_wo, (uint32_t)(base * 128u),
-                                         (uint32_t)(cur_blocks * 128u));
-      Tensor resid1_chunk =
-          tensor_col_chunk(resid1_tile, (uint32_t)(base * 128u),
-                           (uint32_t)(cur_blocks * 128u));
-      tm_in_ro(g_task_id, hidden_states_chunk);
+      Tensor wo_piece = tensor_col_view(ext_wo, (uint32_t)(base * 128u),
+                                        (uint32_t)(cur_blocks * 128u));
+      Tensor resid1_piece =
+          tensor_col_view(resid1_tile, (uint32_t)(base * 128u),
+                          (uint32_t)(cur_blocks * 128u));
+      tm_in_ro(g_task_id, hidden_states_piece);
       tm_in(g_task_id, attn_out_tile);
-      tm_in_ro(g_task_id, wo_chunk);
-      tm_inout(g_task_id, resid1_chunk);
+      tm_in_ro(g_task_id, wo_piece);
+      tm_inout(g_task_id, resid1_piece);
       tm_out(g_task_id, gm_pipe_buffer_0);
       add_scalar(g_task_id, b0);
       add_scalar(g_task_id, cur_valid);
@@ -415,13 +420,13 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor w_gate_chunk = tensor_col_chunk(ext_w_gate, (uint32_t)(base * 512u),
-                                           (uint32_t)(cur_blocks * 512u));
-      Tensor gate_chunk = tensor_col_chunk(gate_tile, (uint32_t)(base * 512u),
+      Tensor w_gate_piece = tensor_col_view(ext_w_gate, (uint32_t)(base * 512u),
+                                            (uint32_t)(cur_blocks * 512u));
+      Tensor gate_piece = tensor_col_view(gate_tile, (uint32_t)(base * 512u),
                                           (uint32_t)(cur_blocks * 512u));
       tm_in(g_task_id, post_norm_tile);
-      tm_in_ro(g_task_id, w_gate_chunk);
-      tm_inout(g_task_id, gate_chunk);
+      tm_in_ro(g_task_id, w_gate_piece);
+      tm_inout(g_task_id, gate_piece);
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_GATE_PROJ);
       tm_submit(g_task_id);
@@ -436,13 +441,13 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor w_up_chunk = tensor_col_chunk(ext_w_up, (uint32_t)(base * 512u),
+      Tensor w_up_piece = tensor_col_view(ext_w_up, (uint32_t)(base * 512u),
                                           (uint32_t)(cur_blocks * 512u));
-      Tensor up_chunk = tensor_col_chunk(up_tile, (uint32_t)(base * 512u),
-                                         (uint32_t)(cur_blocks * 512u));
+      Tensor up_piece = tensor_col_view(up_tile, (uint32_t)(base * 512u),
+                                        (uint32_t)(cur_blocks * 512u));
       tm_in(g_task_id, post_norm_tile);
-      tm_in_ro(g_task_id, w_up_chunk);
-      tm_inout(g_task_id, up_chunk);
+      tm_in_ro(g_task_id, w_up_piece);
+      tm_inout(g_task_id, up_piece);
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_UP_PROJ);
       tm_submit(g_task_id);
@@ -457,15 +462,15 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_VECTOR);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor gate_chunk = tensor_col_chunk(gate_tile, (uint32_t)(base * 512u),
-                                           (uint32_t)(cur_blocks * 512u));
-      Tensor up_chunk = tensor_col_chunk(up_tile, (uint32_t)(base * 512u),
-                                         (uint32_t)(cur_blocks * 512u));
-      Tensor mlp_chunk = tensor_col_chunk(mlp_tile, (uint32_t)(base * 512u),
+      Tensor gate_piece = tensor_col_view(gate_tile, (uint32_t)(base * 512u),
                                           (uint32_t)(cur_blocks * 512u));
-      tm_in(g_task_id, gate_chunk);
-      tm_in(g_task_id, up_chunk);
-      tm_inout(g_task_id, mlp_chunk);
+      Tensor up_piece = tensor_col_view(up_tile, (uint32_t)(base * 512u),
+                                        (uint32_t)(cur_blocks * 512u));
+      Tensor mlp_piece = tensor_col_view(mlp_tile, (uint32_t)(base * 512u),
+                                         (uint32_t)(cur_blocks * 512u));
+      tm_in(g_task_id, gate_piece);
+      tm_in(g_task_id, up_piece);
+      tm_inout(g_task_id, mlp_piece);
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_SILU);
       tm_submit(g_task_id);
@@ -480,13 +485,13 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_CUBE);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor w_down_chunk = tensor_col_chunk(ext_w_down, (uint32_t)(base * 128u),
-                                           (uint32_t)(cur_blocks * 128u));
-      Tensor down_chunk = tensor_col_chunk(down_tile, (uint32_t)(base * 128u),
-                                           (uint32_t)(cur_blocks * 128u));
+      Tensor w_down_piece = tensor_col_view(ext_w_down, (uint32_t)(base * 128u),
+                                            (uint32_t)(cur_blocks * 128u));
+      Tensor down_piece = tensor_col_view(down_tile, (uint32_t)(base * 128u),
+                                          (uint32_t)(cur_blocks * 128u));
       tm_in(g_task_id, mlp_tile);
-      tm_in_ro(g_task_id, w_down_chunk);
-      tm_inout(g_task_id, down_chunk);
+      tm_in_ro(g_task_id, w_down_piece);
+      tm_inout(g_task_id, down_piece);
       add_scalar(g_task_id, base);
       add_duration(g_task_id, DUR_DOWN_PROJ);
       tm_submit(g_task_id);
@@ -501,17 +506,17 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
       }
       set_task_type(g_task_id, TASK_TYPE_VECTOR);
       set_block_num(g_task_id, (uint32_t)cur_blocks);
-      Tensor down_chunk = tensor_col_chunk(down_tile, (uint32_t)(base * 128u),
-                                           (uint32_t)(cur_blocks * 128u));
-      Tensor resid1_chunk =
-          tensor_col_chunk(resid1_tile, (uint32_t)(base * 128u),
-                           (uint32_t)(cur_blocks * 128u));
-      Tensor out_chunk = tensor_chunk_2d(ext_out, (uint32_t)b0, (uint32_t)cur_valid,
-                                         (uint32_t)(base * 128u),
-                                         (uint32_t)(cur_blocks * 128u), BFLOAT16);
-      tm_in(g_task_id, down_chunk);
-      tm_in(g_task_id, resid1_chunk);
-      tm_out(g_task_id, out_chunk);
+      Tensor down_piece = tensor_col_view(down_tile, (uint32_t)(base * 128u),
+                                          (uint32_t)(cur_blocks * 128u));
+      Tensor resid1_piece =
+          tensor_col_view(resid1_tile, (uint32_t)(base * 128u),
+                          (uint32_t)(cur_blocks * 128u));
+      Tensor out_tile = tensor_row_view(ext_out, (uint32_t)b0, (uint32_t)cur_valid);
+      Tensor out_piece = tensor_col_view(out_tile, (uint32_t)(base * 128u),
+                                         (uint32_t)(cur_blocks * 128u));
+      tm_in(g_task_id, down_piece);
+      tm_in(g_task_id, resid1_piece);
+      tm_out(g_task_id, out_piece);
       add_scalar(g_task_id, cur_valid);
       add_scalar(g_task_id, b0);
       add_scalar(g_task_id, base);
