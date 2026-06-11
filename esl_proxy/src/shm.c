@@ -10,10 +10,12 @@
 #include "conf.h"
 #include "dispatch.h"
 
-atomic_int g_task_id = 1;
-uint16_t g_min_uncomplete_task = 2;
+atomic_int g_task_id = 0;
+_Atomic uint16_t g_min_uncomplete_task = 1;
+// Keep Atomic For Multi Dispatch Thread
 atomic_int g_completed_cnt = 0;
 atomic_bool g_is_done = false;
+atomic_bool g_orch_is_done = false;
 
 _Atomic task_state g_state_buf[RING_SIZE];
 _Atomic uint16_t g_predecessor_buf[RING_SIZE];

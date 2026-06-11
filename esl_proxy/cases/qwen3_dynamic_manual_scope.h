@@ -20,8 +20,6 @@
 #include "mem_pool.h"
 #include "ring_buf.h"
 
-extern atomic_int g_completed_cnt;
-
 #ifndef QWEN3_SPMD_TIER
 #define QWEN3_SPMD_TIER 4
 #endif
@@ -47,6 +45,8 @@ extern atomic_int g_completed_cnt;
 #define DUR_DOWN_PROJ 72220
 #define DUR_DOWN_PROJ_RES 2590
 
+int g_subtask_cnt = 0;
+
 static inline void set_task_type(uint16_t task_id, task_type_t type) {
     g_basic_buf[task_id & RING_MASK].type = type;
 }
@@ -54,6 +54,7 @@ static inline void set_task_type(uint16_t task_id, task_type_t type) {
 static inline void set_block_num(uint16_t task_id, uint32_t count) {
     g_basic_buf[task_id & RING_MASK].mode = ORG_MODE_SPMD_SYNC;
     g_basic_buf[task_id & RING_MASK].count = count;
+    g_subtask_cnt += count;
 }
 
 static inline int qwen3_min_i(int a, int b) {
@@ -534,6 +535,4 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             dri++;
         }
     }
-
-    g_completed_cnt++;
 }

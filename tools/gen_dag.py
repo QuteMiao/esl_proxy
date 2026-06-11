@@ -9,7 +9,6 @@ import csv
 import subprocess
 from collections import defaultdict
 
-
 # Task type mapping:0=CUBE, 1=VECTOR, 2=MIX
 TASK_TYPE_NAMES = {
     0: 'CUBE',

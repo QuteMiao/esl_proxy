@@ -29,7 +29,7 @@
 #endif
 
 extern atomic_int g_task_id;
-extern uint16_t g_min_uncomplete_task;
+extern _Atomic uint16_t g_min_uncomplete_task;
 extern _Atomic task_state g_state_buf[RING_SIZE];
 extern atomic_flag g_lock_buf[RING_SIZE];
 extern struct task_desc g_basic_buf[RING_SIZE];
@@ -144,7 +144,7 @@ static inline bool fanin_has_consumer(uint16_t producer, uint16_t consumer)
 
 static inline bool batch_succeed(uint16_t cnt, uint16_t task_id[], uint16_t target)
 {
-    if (target < g_min_uncomplete_task)
+    if (target < atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire))
         return false;
 
     uint16_t unique[512];
@@ -238,7 +238,7 @@ static inline void submit(uint16_t task_id)
 
 static inline bool succeed(uint16_t task_id, uint16_t target)
 {
-    if (target < g_min_uncomplete_task)
+    if (target < atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire))
         return false;
     if (fanin_has_consumer(target, task_id))
         return true;
@@ -311,11 +311,11 @@ static inline bool set_task_completed(uint32_t task_id, uint32_t state)
 
 static inline void update_min_uncompleted(void)
 {
-    uint32_t i = g_min_uncomplete_task & RING_MASK;
-    for (; i < (g_task_id & RING_MASK); i++) {
+    uint32_t i = atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire) & RING_MASK;
+    for (; i < (atomic_load_explicit(&g_task_id, memory_order_acquire) & RING_MASK); i++) {
         task_state result = atomic_load_explicit(&g_state_buf[i], memory_order_acquire);
         if (result.state == TASK_STATUS_COMPLETED) {
-            g_min_uncomplete_task = result.task_id;
+            atomic_store_explicit(&g_min_uncomplete_task, result.task_id, memory_order_release);
         } else {
             break;
         }
@@ -325,7 +325,7 @@ static inline void update_min_uncompleted(void)
 static inline uint32_t ring_min_uncompleted(void)
 {
     update_min_uncompleted();
-    return g_min_uncomplete_task;
+    return atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire);
 }
 
 #endif /* DAG_RING_BUF_H */

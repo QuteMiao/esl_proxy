@@ -795,7 +795,7 @@ static inline void tm_submit(uint16_t tid) {
 #endif
   submit(tid);
 #if !NO_DEPS
-  tm_sync_tensormap(&g_tm_map, 0, (int32_t)g_min_uncomplete_task, tid);
+  tm_sync_tensormap(&g_tm_map, 0, (int32_t)atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire), tid);
 #endif
 }
 

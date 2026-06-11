@@ -38,6 +38,8 @@ void aicpu_orchestration_entry(const uint64_t orch_args);
 static uint8_t g_mem_pool_storage[MEM_POOL_BYTES];
 static when2free_entry_t g_when2free_entries[WHEN2FREE_CAP];
 
+extern atomic_bool g_orch_is_done;
+
 int main(void) {
     pthread_t dispatch_threads[DISPATCH_THREAD_CNT];
     pthread_t cutter_threads[CUTTER_THREAD_CNT];
@@ -60,35 +62,6 @@ int main(void) {
     init_ctrl_t();
     executor_init();
 
-#if ORCHESTRATION_TIME
-    uint64_t start_ns = get_time_ns();
-    aicpu_orchestration_entry(0);
-    uint64_t end_ns = get_time_ns();
-    uint64_t elapsed_ns = end_ns - start_ns;
-
-    uint32_t task_cnt = 0;
-    uint64_t subtask_cnt = 0;
-    for (uint32_t i = 1; i <= (uint32_t)g_task_id; i++) {
-        const task_state st = atomic_load_explicit(&g_state_buf[i & RING_MASK], memory_order_relaxed);
-        if (st.state == TASK_STATUS_EMPTY)
-            continue;
-        task_cnt++;
-        const struct task_desc *t = &g_basic_buf[i & RING_MASK];
-        if (t->mode == ORG_MODE_SPMD_SYNC || t->mode == ORG_MODE_SPMD_ASYNC)
-            subtask_cnt += t->count;
-        else
-            subtask_cnt += 1;
-    }
-
-    MAIN_LOGF("[orchestration] task_cnt = %u", task_cnt);
-    MAIN_LOGF("[orchestration] subtask_cnt = %llu", (unsigned long long)subtask_cnt);
-    MAIN_LOGF("[orchestration] elapsed_time = %llu ns", (unsigned long long)elapsed_ns);
-    MAIN_LOGF("[orchestration] task_tp = %f MTasks/s", (float)(task_cnt * 1000.0 / elapsed_ns));
-    MAIN_LOGF("[orchestration] subtask_tp = %f MTasks/s", (float)(subtask_cnt * 1000.0 / elapsed_ns));
-#else
-    aicpu_orchestration_entry(0);
-#endif
-
     // pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
 
     for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
@@ -104,7 +77,21 @@ int main(void) {
     //     pthread_create(&executor_threads[i], NULL, executor_worker, (void *)(intptr_t)i);
     // }
 
+#if ORCHESTRATION_TIME
+    uint64_t start_ns = get_time_ns();
+    aicpu_orchestration_entry(0);
+    uint64_t end_ns = get_time_ns();
+    uint64_t elapsed_ns = end_ns - start_ns;
 
+    MAIN_LOGF("[orchestration] task_cnt = %u", g_task_id);
+    MAIN_LOGF("[orchestration] subtask_cnt = %llu", (unsigned long long)g_subtask_cnt);
+    MAIN_LOGF("[orchestration] elapsed_time = %llu ns", (unsigned long long)elapsed_ns);
+    MAIN_LOGF("[orchestration] task_tp = %f MTasks/s", (float)(g_task_id * 1000.0 / elapsed_ns));
+    MAIN_LOGF("[orchestration] subtask_tp = %f MTasks/s", (float)(g_subtask_cnt * 1000.0 / elapsed_ns));
+#else
+    aicpu_orchestration_entry(0);
+#endif
+    atomic_store(&g_orch_is_done, true);
     // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
     //     pthread_join(executor_threads[i], NULL);
     // }

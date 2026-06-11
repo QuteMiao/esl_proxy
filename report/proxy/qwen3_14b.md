@@ -19,6 +19,8 @@ make CASE=qwen3_dynamic_tensormap.h run
 |duration/us| 90| 187 |407 | 60 |
 |task throughput MTasks/s| 9.60 | 4.62 |2.12 | 14.9 |
 |subtask throughput MTasks/s| 34.40 | 16.5 |7.6 | / |
+|predict_tasks MTasks/s| / | / | 0.69 | 4.85 |
+|predict_subtasks MTasks/s| / | / | 2.58 | / |
 
 ## Debug
 ```shell

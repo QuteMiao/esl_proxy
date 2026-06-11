@@ -12,8 +12,9 @@
 #include <stdint.h>
 
 extern atomic_int g_task_id;
+extern atomic_bool g_orch_is_done;
 extern atomic_int g_completed_cnt;
-extern _Atomic bool g_is_done;
+extern atomic_bool g_is_done;
 extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 extern struct task_desc g_basic_buf[RING_SIZE];
 extern executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
@@ -156,20 +157,20 @@ void *dispatch_worker(void *arg)
     int total_sent = 0;
     uint64_t start_ns = get_time_ns();
     
+    while (!atomic_load(&g_orch_is_done)) {
+        total_sent += dispatch(tid);
+    }
+
     while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id)) {
         total_sent += dispatch(tid);
-        // WORKER_LOGF("worker %d,total_sent,%d total,%d", tid, total_sent, g_task_id);
     }
     
     atomic_store(&g_is_done, true);
     uint64_t end_ns = get_time_ns();
     uint64_t elapsed_ns = end_ns - start_ns;
 
-    MAIN_LOGF("[scheduler] task_cnt = %u", total_sent);
+    MAIN_LOGF("[scheduler] task_cnt = %u", g_completed_cnt);
     MAIN_LOGF("[scheduler] duration = %llu ns", (unsigned long long)elapsed_ns);
-    MAIN_LOGF("[scheduler] task_tp = %f MTasks/s",
-            (float)(total_sent * 1000.0 / elapsed_ns));
-
-    WORKER_LOGF("worker,%d,total_sent,%d total,%d", tid, total_sent, g_task_id);
+    MAIN_LOGF("[scheduler] task_tp = %f MTasks/s",(float)(g_completed_cnt * 1000.0 / elapsed_ns));
     return NULL;
 }
