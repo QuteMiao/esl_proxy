@@ -127,9 +127,10 @@ static inline void unlock(int slotIdx)
     atomic_flag_clear_explicit(&g_lock_buf[slotIdx], memory_order_release);
 }
 
-static inline int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t n, uint16_t start)
+static int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t n, uint16_t start)
 {
-    int slotIdx = task_id & RING_MASK;
+    // int slotIdx = task_id & RING_MASK;
+    int slotIdx = task_id;
     struct predecessor_list *ptr = &g_predecessors[slotIdx];
     int cnt = start;
     if (ptr->cnt <= 0)
@@ -140,7 +141,7 @@ static inline int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t
     {
         if (target[i] < min_uncomplete_task)
             continue;
-        WORKER_LOGF("succeed,task_id,%u,predecessor_id,%u,idx,%d", task_id, target[i],cnt);
+        WORKER_LOGF("succeed,task_id,%u,predecessor_id,%u,idx,%d", task_id, target[i], cnt);
         uint16_t* idx = atomic_fetch_add(&g_predecessor_ring.tail, 1);
         *idx = target[i];
         cnt++;
