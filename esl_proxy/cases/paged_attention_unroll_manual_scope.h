@@ -85,7 +85,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
 
                 /* task 0: qk_matmul */
                 g_task_id++;
-                while (try_new_task(g_task_id)) {
+                while (new_task(g_task_id)) {
                     spin_wait();
                 }
                 set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -105,7 +105,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
 
                 /* task 1: softmax_prep */
                 g_task_id++;
-                while (try_new_task(g_task_id)) {
+                while (new_task(g_task_id)) {
                     spin_wait();
                 }
                 set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -125,7 +125,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
 
                 /* task 2: pv_matmul */
                 g_task_id++;
-                while (try_new_task(g_task_id)) {
+                while (new_task(g_task_id)) {
                     spin_wait();
                 }
                 set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -142,7 +142,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
 
                 /* task 3: online_update */
                 g_task_id++;
-                while (try_new_task(g_task_id)) {
+                while (new_task(g_task_id)) {
                     spin_wait();
                 }
                 set_task_type(g_task_id, TASK_TYPE_VECTOR);

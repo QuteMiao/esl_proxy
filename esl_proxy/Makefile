@@ -43,7 +43,7 @@ CC       := cc
 # change to any include/*.h (e.g. tensormap.h) rebuilds the dependent objects.
 DEP_DUMP_DIR := ../tools/dep_dump
 
-CFLAGS   := -std=c11 -Wall -Wextra -pedantic -O3 -D_POSIX_C_SOURCE=199309L -I include -I cases -I$(DEP_DUMP_DIR) -DORCH_CASE=$(CASE) -MMD -MP -Wno-error=implicit-function-declaration
+CFLAGS   := -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L -I include -I cases -I$(DEP_DUMP_DIR) -DORCH_CASE=$(CASE) -MMD -MP -Wno-error=implicit-function-declaration
 
 # -latomic is needed on Linux but not on macOS (clang)
 UNAME_S  := $(shell uname -s)
@@ -138,7 +138,7 @@ test-dep-dump-paged-attention: $(BIN_DIR)/test_dep_dump_paged_attention_edges
 test-tensormap: $(BIN_DIR)/test_tensormap
 	$(BIN_DIR)/test_tensormap
 
-TEST_TENSORMAP_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -O3 -D_POSIX_C_SOURCE=200809L -I include -DUSE_TENSORMAP
+TEST_TENSORMAP_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -O2 -D_POSIX_C_SOURCE=200809L -I include -DUSE_TENSORMAP
 
 $(BIN_DIR)/test_tensormap: tests/test_tensormap.c | $(BIN_DIR)
 	$(CC) $(TEST_TENSORMAP_CFLAGS) tests/test_tensormap.c -o $@ $(LDFLAGS)

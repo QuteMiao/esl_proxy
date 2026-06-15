@@ -64,9 +64,15 @@ struct task_desc {
     uint16_t       duration;    /* estimated kernel cycles (low 16 bits) */
 };
 
-struct succ_list {
-    uint16_t successor[SUCC_NODE_CNT];
-    struct succ_list *next;
+struct predecessor_list {
+    uint16_t cnt;
+    uint16_t* exp;
+};
+
+struct node_list {
+    uint16_t cnt;
+    uint16_t node[CON_NODE_CNT];
+    struct node_list* next;
 };
 
 #endif /* DAG_TASK_H */

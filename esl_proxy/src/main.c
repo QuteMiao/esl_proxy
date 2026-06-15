@@ -10,7 +10,6 @@
 
 #include "conf.h"
 #include "cutter.h"
-#include "dep_dump.h"
 #include "dispatch.h"
 #include "executor.h"
 #include "log.h"
@@ -59,15 +58,17 @@ int main(void) {
     mem_pool_init(&g_mem_pool, g_mem_pool_storage, sizeof g_mem_pool_storage);
     mem_pool_init_fifo(&g_mem_pool, g_when2free_entries, WHEN2FREE_CAP);
     ring_buf_init();
+    init_predecessors();
     init_ctrl_t();
-    executor_init();
+    
+    // executor_init();
 
     // pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
 
-    for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-        pthread_create(&dispatch_threads[i], NULL, dispatch_worker,
-                       (void *)(intptr_t)i);
-    }
+    // for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
+    //     pthread_create(&dispatch_threads[i], NULL, dispatch_worker,
+    //                    (void *)(intptr_t)i);
+    // }
 
     for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
         pthread_create(&cutter_threads[i], NULL, cutter_worker,
@@ -98,9 +99,9 @@ int main(void) {
     for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
         pthread_join(cutter_threads[i], NULL);
     }
-    for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-        pthread_join(dispatch_threads[i], NULL);
-    }
+    // for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
+    //     pthread_join(dispatch_threads[i], NULL);
+    // }
     // pthread_join(manager_thread, NULL);
 
 #if WORKER_LOG

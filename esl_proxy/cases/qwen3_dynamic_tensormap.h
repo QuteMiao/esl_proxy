@@ -114,7 +114,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         const int64_t cur_valid = (user_batch - b0 > 16) ? 16 : (user_batch - b0);
 
         g_task_id++;
-        while (!try_new_task(g_task_id)) {
+        while (!new_task(g_task_id)) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -130,7 +130,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             // 20: q_proj SPMD total chunks; cols/chunk = 5120/20 = 256
             int cur_blocks = qwen3_cur_blocks(20, base);
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -149,7 +149,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         for (int base = 0; base < 8; base += qwen3_blocks_per_task(8)) {
             int cur_blocks = qwen3_cur_blocks(8, base);
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -165,7 +165,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             tm_submit(g_task_id);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -182,7 +182,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         }
 
         g_task_id++;
-        while (!try_new_task(g_task_id)) {
+        while (!new_task(g_task_id)) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -218,7 +218,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         const int64_t slot_offset = slot - slot_block * 128;
 
         g_task_id++;
-        while (!try_new_task(g_task_id)) {
+        while (!new_task(g_task_id)) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -246,7 +246,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             Tensor row_piece = tensor_view(all_raw_scores, 0u, base * 1024u, cur_blocks * 1024u);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -263,7 +263,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             tm_submit(g_task_id);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -283,7 +283,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
 
             Tensor exp_piece = tensor_view(all_exp_padded, 0u, base * 1024u, cur_blocks * 1024u);
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -300,7 +300,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             tm_submit(g_task_id);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -331,7 +331,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             // 40: out_proj SPMD total chunks; cols/chunk = 5120/40 = 128
             int cur_blocks = qwen3_cur_blocks(40, base);
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_MIX);
@@ -351,7 +351,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         }
 
         g_task_id++;
-        while (!try_new_task(g_task_id)) {
+        while (!new_task(g_task_id)) {
             spin_wait();
         }
         set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -367,7 +367,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             Tensor up_piece = tensor_view(up_tile, 1u, base * 512u, cur_blocks * 512u);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -380,7 +380,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             tm_submit(g_task_id);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -393,7 +393,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             tm_submit(g_task_id);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_VECTOR);
@@ -413,7 +413,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             Tensor resid1_piece = tensor_view(resid1_tile, 1u, base * 128u, cur_blocks * 128u);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_CUBE);
@@ -426,7 +426,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             tm_submit(g_task_id);
 
             g_task_id++;
-            while (!try_new_task(g_task_id)) {
+            while (!new_task(g_task_id)) {
                 spin_wait();
             }
             set_task_type(g_task_id, TASK_TYPE_VECTOR);

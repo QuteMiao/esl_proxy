@@ -33,7 +33,6 @@ static inline void dispatch_init(int tid)
     g_ctrl_t[tid].tid = (uint16_t)tid;
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
         for (int j = 0; j < AIC_OSTD; j++) {
-            // Set all 60 bits (AIC_CNT = 60)
             g_ctrl_t[tid].free_bitmap[i][j] = (uint64_t)((1ULL << AIC_CNT) - 1);
             g_ctrl_t[tid].msg_bitmap[i][j] = 0x0;
         }
@@ -66,7 +65,7 @@ static inline void get_completed(uint64_t* bitmap, uint16_t task_id[], int *comp
 }
 
 // TODO: add counter for spmd
-static inline void set_completed(int tid)
+static inline void push_2_completed_queue(int tid)
 {
     uint16_t task_id[240];
     int complete_cnt = 0;
@@ -76,12 +75,6 @@ static inline void set_completed(int tid)
         get_completed(&g_ctrl_t[tid].msg_bitmap[i][1], task_id, &complete_cnt,
                       g_ctrl_t[tid].task_id_map2[i]);
     }
-    for (int i = 0; i < complete_cnt; i++) {
-        int slot = task_id[i] & RING_MASK;
-        task_state s = atomic_load_explicit(&g_state_buf[slot], memory_order_relaxed);
-        s.state = COMPLETED;
-        atomic_store_explicit(&g_state_buf[slot], s, memory_order_release);
-    }
     batch_enqueue(&g_ctrl_t[tid].completed_queue, task_id, (uint16_t)complete_cnt);
     atomic_fetch_add_explicit(&g_completed_cnt, complete_cnt, memory_order_acquire);
 }
@@ -89,7 +82,7 @@ static inline void set_completed(int tid)
 // TODO: Work Stealing
 static inline int send_task(ctrl_t *ctrl, int type)
 {
-    int exe_type = type;  // TASK_TYPE_* maps to EXE_TYPE_*
+    int exe_type = type;
     // Check both slots - slot is free if neither slot 0 nor slot 1 has been sent a task
     uint64_t free_bitmap = ctrl->free_bitmap[type][0] & ctrl->free_bitmap[type][1];
     int free_cnt = __builtin_popcountll(free_bitmap);
@@ -98,7 +91,8 @@ static inline int send_task(ctrl_t *ctrl, int type)
         return 0;
     }
     uint16_t task_ids[AIC_CNT];
-    batch_dequeue(&ctrl->ready_queue[type], task_ids, &cnt);
+    uint16_t cnt_u16 = (uint16_t)cnt;
+    batch_dequeue(&ctrl->ready_queue[type], task_ids, &cnt_u16);
     
     int sent = 0;
     for (int i = 0; i < cnt; i++) {
@@ -138,7 +132,7 @@ int dispatch(int tid)
 {
     int total_sent = 0;
     get_free_exe(tid);
-    set_completed(tid);
+    push_2_completed_queue(tid);
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);

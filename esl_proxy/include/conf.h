@@ -4,12 +4,13 @@
 #define RING_SIZE 4096
 #define RING_MASK (RING_SIZE - 1)
 #define HALF_RING_SIZE 2048
+#define NODE_BUFF_SIZE 8192
 
 // TODO: ERROR
-#define SUCC_NODE_CNT 32
+#define CON_NODE_CNT 32
 
 #define AIC_OSTD 2
-#define AIC_CNT 60
+#define AIC_CNT 120
 #define EXE_TYPE_CNT 2
 
 #define CUTTER_BATCH_SIZE 64

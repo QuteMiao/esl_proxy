@@ -11,5 +11,6 @@
 
 void cutter(queue_t *cq, queue_t *rq);
 void *cutter_worker(void *arg);
+void init_state_buf(void);
 
 #endif /* CUTTER_H */
