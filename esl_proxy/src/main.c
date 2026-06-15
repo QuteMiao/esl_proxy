@@ -65,15 +65,6 @@ int main(void) {
 
     // pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
 
-    // for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-    //     pthread_create(&dispatch_threads[i], NULL, dispatch_worker,
-    //                    (void *)(intptr_t)i);
-    // }
-
-    for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
-        pthread_create(&cutter_threads[i], NULL, cutter_worker,
-                       (void *)(intptr_t)i);
-    }
     // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
     //     pthread_create(&executor_threads[i], NULL, executor_worker, (void *)(intptr_t)i);
     // }
@@ -93,15 +84,28 @@ int main(void) {
     aicpu_orchestration_entry(0);
 #endif
     atomic_store(&g_orch_is_done, true);
+
+    for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
+        pthread_create(&cutter_threads[i], NULL, cutter_worker,
+                       (void *)(intptr_t)i);
+    }
+
+    for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
+        pthread_create(&dispatch_threads[i], NULL, dispatch_worker,
+                       (void *)(intptr_t)i);
+    }
+
+
+
     // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
     //     pthread_join(executor_threads[i], NULL);
     // }
     for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
         pthread_join(cutter_threads[i], NULL);
     }
-    // for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-    //     pthread_join(dispatch_threads[i], NULL);
-    // }
+    for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
+        pthread_join(dispatch_threads[i], NULL);
+    }
     // pthread_join(manager_thread, NULL);
 
 #if WORKER_LOG

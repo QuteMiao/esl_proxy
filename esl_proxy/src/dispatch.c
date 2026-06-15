@@ -28,18 +28,6 @@ static inline void set_mix(int tid)
     }
 }
 
-static inline void dispatch_init(int tid)
-{
-    g_ctrl_t[tid].tid = (uint16_t)tid;
-    for (int i = 0; i < EXE_TYPE_CNT; i++) {
-        for (int j = 0; j < AIC_OSTD; j++) {
-            g_ctrl_t[tid].free_bitmap[i][j] = (uint64_t)((1ULL << AIC_CNT) - 1);
-            g_ctrl_t[tid].msg_bitmap[i][j] = 0x0;
-        }
-    }
-    set_mix(tid);
-}
-
 static inline void get_free_exe(int tid)
 {
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
@@ -85,14 +73,15 @@ static inline int send_task(ctrl_t *ctrl, int type)
     int exe_type = type;
     // Check both slots - slot is free if neither slot 0 nor slot 1 has been sent a task
     uint64_t free_bitmap = ctrl->free_bitmap[type][0] & ctrl->free_bitmap[type][1];
-    int free_cnt = __builtin_popcountll(free_bitmap);
-    int cnt = free_cnt > (int)ctrl->ready_queue[type].cnt ? (int)ctrl->ready_queue[type].cnt : free_cnt;
+    int cnt = __builtin_popcountll(free_bitmap);
     if (cnt <= 0) {
+        WORKER_LOGF("send,free_cnt,%d", cnt);
         return 0;
     }
     uint16_t task_ids[AIC_CNT];
-    uint16_t cnt_u16 = (uint16_t)cnt;
-    batch_dequeue(&ctrl->ready_queue[type], task_ids, &cnt_u16);
+    if (!batch_dequeue(&ctrl->ready_queue[type], task_ids, &cnt)){
+        return 0;
+    }
     
     int sent = 0;
     for (int i = 0; i < cnt; i++) {
@@ -145,8 +134,9 @@ int dispatch(int tid)
  */
 void *dispatch_worker(void *arg)
 {
+    // atomic_store(&g_is_done, true);
+    // return NULL;
     int tid = (int)(intptr_t)arg;
-    dispatch_init(tid);
 
     int total_sent = 0;
     uint64_t start_ns = get_time_ns();
@@ -154,9 +144,20 @@ void *dispatch_worker(void *arg)
     while (!atomic_load(&g_orch_is_done)) {
         total_sent += dispatch(tid);
     }
-
+    int prev = g_completed_cnt;
+    int count = 10000;
     while (atomic_load(&g_completed_cnt) < atomic_load(&g_task_id)) {
         total_sent += dispatch(tid);
+        // if (prev == g_completed_cnt)
+        // {
+        //     count--;
+        //     if (count < 0){
+        //         break;
+        //     }
+        // } else {
+        //     count = 10000;
+        // }
+        // prev = g_completed_cnt;
     }
     
     atomic_store(&g_is_done, true);

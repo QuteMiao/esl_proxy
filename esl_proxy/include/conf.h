@@ -10,7 +10,7 @@
 #define CON_NODE_CNT 32
 
 #define AIC_OSTD 2
-#define AIC_CNT 120
+#define AIC_CNT 60
 #define EXE_TYPE_CNT 2
 
 #define CUTTER_BATCH_SIZE 64

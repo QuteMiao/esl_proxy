@@ -35,17 +35,9 @@ static inline bool batch_dequeue(queue_t *queue, uint16_t *item, uint16_t *n)
         return false;
     }
     uint64_t head = queue->head;
-    // Handle circular buffer wrapping
-    uint64_t first_part = RING_SIZE - head;
-    if (first_part >= *n) {
-        // No wrap needed
-        memcpy(item, &queue->tasks[head], *n * sizeof(uint16_t));
-    } else {
-        // Wrap around: read from head to end, then from start
-        memcpy(item, &queue->tasks[head], first_part * sizeof(uint16_t));
-        memcpy(&item[first_part], queue->tasks, (*n - first_part) * sizeof(uint16_t));
-    }
-    queue->head = (queue->head + *n) & (RING_SIZE - 1);
+    memcpy(item, &queue->tasks[head], *n * sizeof(uint16_t));
+
+    queue->head = queue->head + *n;
     queue->cnt -= *n;
     unlock_q(queue);
     return true;
