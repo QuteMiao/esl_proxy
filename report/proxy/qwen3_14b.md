@@ -17,18 +17,18 @@ spmd = 4
 make CASE=qwen3_dynamic_manual_scope.h run
 make CASE=qwen3_dynamic_tensormap.h run
 ```
+|tasks|subtasks|spmd|platform|
+|:----:|:----:|:----:|:----:|
+|864|3096|3.58|m5|
 
-| Item |O1_Base|O1_Assign|O1_Tensor|Scheduler|
-|:----:|:----:|:----:|:----:|:----:|
-|tasks| 864 | 
-|subtasks| 3096|
-|spmd| 3.58 |
-|platform| M5 |
-|duration/us| 90| 187 |407 | 60 |
-|task throughput MTasks/s| 9.60 | 4.62 |2.12 | 14.9 |
-|subtask throughput MTasks/s| 34.40 | 16.5 |7.6 | / |
-|predict_tasks MTasks/s| / | / | 0.69 | 4.85 |
-|predict_subtasks MTasks/s| / | / | 2.58 | / |
+| Version | Duration/us | Task throughput MTasks/s | subtask throughput MTasks/s | predict_tasks MTasks/s | predict_subtasks MTasks/s |
+|:----:|:----:|:----:|:----:|:----:|:----:|
+| Orchestrator | 90 | 9.60 | 34.40 | / | / |
+| O_Assign | 187 | 4.62 | 16.5 | / | / |
+| O_Tensor  | 407 | 2.12 | 7.6 | 0.69 | 2.58 |
+| O_Async | 142 | 6.08 | 21.8 | / | / |
+| Scheduler | / | 14.9 | / | 4.85 | / |
+| S_Async | / | 14.7 | 5.88 | / | / |
 
 ## Debug
 ```shell
