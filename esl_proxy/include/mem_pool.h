@@ -18,9 +18,7 @@
 
 #include "ring_buf.h"
 #include "task.h"
-#ifdef USE_TENSORMAP
-#include "tensormap.h"
-#endif
+#include "tensor.h"
 
 /* Alignment requirement for allocations */
 #define MEM_POOL_ALIGN 64
@@ -82,11 +80,8 @@ static inline Tensor alloc_tensors(uint32_t shape[], int dim, int bytes)
 {
     size_t size = (size_t)shape[0] * (size_t)shape[1] * (size_t)dim * (size_t)bytes;
     uint64_t base = (uint64_t)(uintptr_t)mem_pool_alloc(&g_mem_pool, size);
-#ifdef USE_TENSORMAP
-    return tensor_make_2d(base, shape[0], shape[1], (dtype_t)bytes);
-#else
-    return (Tensor)base;
-#endif
+    const uint32_t shapes[2] = {shape[0], shape[1]};
+    return tensor_from_base_layout(base, shapes, 2, (dtype_t)bytes);
 }
 
 /*

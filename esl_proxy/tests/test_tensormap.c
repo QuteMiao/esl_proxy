@@ -5,7 +5,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "tensor.h"
-#include "tensormap.h"
+#include "tensormap_core.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -25,48 +25,28 @@ static TmConfig make_config(void) {
   return cfg;
 }
 
-static TmRegion region_1d(uint64_t base, uint64_t off, uint64_t len,
-                          uint64_t storage) {
-  TmRegion r = {0};
-  r.base_addr = base;
-  r.storage_numel = storage;
-  r.elem_size = 4;
-  r.ndims = 1;
-  r.start_offset = off;
-  r.shapes[0] = (uint32_t)len;
-  r.strides[0] = 1;
-  return r;
+/* 1D FLOAT32 view: `storage` elements in the buffer, slice [off, off+len). */
+static Tensor tensor_1d(uint64_t base, uint64_t off, uint64_t len,
+                        uint64_t storage) {
+  const uint32_t shapes[1] = {(uint32_t)len};
+  Tensor t = tensor_from_base_layout(base, shapes, 1, FLOAT32);
+  t.buffer_size = storage * (uint64_t)FLOAT32;
+  t.start_offset = off;
+  return t;
 }
 
-static TmRegion whole_buffer_region(uint64_t base) {
-  TmRegion r = {0};
-  r.base_addr = base;
-  r.storage_numel = 1;
-  r.elem_size = 1;
-  r.ndims = 2;
-  r.start_offset = 0;
-  r.shapes[0] = 1;
-  r.shapes[1] = 1;
-  r.strides[0] = 1;
-  r.strides[1] = 1;
-  return r;
+/* 1x1 single-element view (elem_size 1) used to model a whole-buffer handle. */
+static Tensor tensor_whole_buffer(uint64_t base) {
+  const uint32_t shapes[2] = {1, 1};
+  return tensor_from_base_layout(base, shapes, 2, (dtype_t)1);
 }
 
-static TmRegion region_2d(uint64_t base, uint32_t stor_d0, uint32_t stor_d1,
-                          uint32_t row0, uint32_t nrows, uint32_t d1,
-                          uint32_t elem_size) {
-  TmRegion r;
-  memset(&r, 0, sizeof r);
-  r.base_addr = base;
-  r.storage_numel = (uint64_t)stor_d0 * stor_d1;
-  r.elem_size = (uint16_t)elem_size;
-  r.ndims = 2;
-  r.start_offset = (uint64_t)row0 * d1;
-  r.shapes[0] = nrows;
-  r.shapes[1] = d1;
-  r.strides[0] = d1;
-  r.strides[1] = 1;
-  return r;
+/* 2D FLOAT32 tile of [stor_d0, stor_d1], rows [row0, row0+nrows). */
+static Tensor tensor_2d_rows(uint64_t base, uint32_t stor_d0, uint32_t stor_d1,
+                             uint32_t row0, uint32_t nrows) {
+  const uint32_t shapes[2] = {stor_d0, stor_d1};
+  Tensor tile = tensor_from_base_layout(base, shapes, 2, FLOAT32);
+  return view(tile, row0, 0, nrows, stor_d1);
 }
 
 typedef struct {
@@ -83,9 +63,9 @@ static bool collect_cb(TmEntry *e, TmOverlap st, void *ctx) {
   return true;
 }
 
-static HitSink collect(TmTensorMap *map, TmRegion probe) {
+static HitSink collect(TmTensorMap *map, Tensor probe) {
   HitSink s = {0};
-  tm_lookup(map, &probe, collect_cb, &s);
+  tm_lookup_tensor(map, &probe, collect_cb, &s);
   return s;
 }
 
@@ -111,30 +91,30 @@ static void test_overlap_semantics(void) {
   TmTensorMap map;
   tm_init(&map, g_buf, &cfg);
 
-  TmRegion a = region_1d(0x1000, 0, 128, 128);
-  tm_insert(&map, &a, tm_make_id(0, 1));
-  HitSink s = collect(&map, region_1d(0x1000, 0, 128, 128));
+  Tensor a = tensor_1d(0x1000, 0, 128, 128);
+  tm_insert_tensor(&map, &a, 1);
+  HitSink s = collect(&map, tensor_1d(0x1000, 0, 128, 128));
   assert(s.count == 1);
   assert(tm_local_of(s.producers[0]) == 1);
   assert(s.statuses[0] == TM_OVERLAP_COVERED);
 
   tm_init(&map, g_buf, &cfg);
-  TmRegion b = region_1d(0x2000, 0, 128, 256);
-  tm_insert(&map, &b, tm_make_id(0, 2));
-  s = collect(&map, region_1d(0x2000, 128, 128, 256));
+  Tensor b = tensor_1d(0x2000, 0, 128, 256);
+  tm_insert_tensor(&map, &b, 2);
+  s = collect(&map, tensor_1d(0x2000, 128, 128, 256));
   assert(s.count == 0);
 
   tm_init(&map, g_buf, &cfg);
-  TmRegion c = region_1d(0x3000, 0, 128, 256);
-  tm_insert(&map, &c, tm_make_id(0, 3));
-  s = collect(&map, region_1d(0x3000, 64, 128, 256));
+  Tensor c = tensor_1d(0x3000, 0, 128, 256);
+  tm_insert_tensor(&map, &c, 3);
+  s = collect(&map, tensor_1d(0x3000, 64, 128, 256));
   assert(s.count == 1);
   assert(s.statuses[0] == TM_OVERLAP_OTHER);
 
   tm_init(&map, g_buf, &cfg);
-  TmRegion d = region_1d(0x4000, 0, 128, 128);
-  tm_insert(&map, &d, tm_make_id(0, 4));
-  s = collect(&map, region_1d(0x5000, 0, 128, 128));
+  Tensor d = tensor_1d(0x4000, 0, 128, 128);
+  tm_insert_tensor(&map, &d, 4);
+  s = collect(&map, tensor_1d(0x5000, 0, 128, 128));
   assert(s.count == 0);
 
   printf("  PASSED\n");
@@ -146,9 +126,9 @@ static void test_l1_fast_reject(void) {
   TmTensorMap map;
   tm_init(&map, g_buf, &cfg);
 
-  TmRegion prod = region_1d(0xB000, 0, 64, 256);
-  tm_insert(&map, &prod, tm_make_id(0, 1));
-  HitSink s = collect(&map, region_1d(0xB000, 200, 32, 256));
+  Tensor prod = tensor_1d(0xB000, 0, 64, 256);
+  tm_insert_tensor(&map, &prod, 1);
+  HitSink s = collect(&map, tensor_1d(0xB000, 200, 32, 256));
   assert(s.count == 0);
 
   printf("  PASSED\n");
@@ -160,11 +140,11 @@ static void test_version_guard(void) {
   TmTensorMap map;
   tm_init(&map, g_buf, &cfg);
 
-  TmRegion prod = region_1d(0xB100, 0, 64, 64);
+  Tensor prod = tensor_1d(0xB100, 0, 64, 64);
   prod.version = 0;
-  tm_insert(&map, &prod, tm_make_id(0, 1));
+  tm_insert_tensor(&map, &prod, 1);
 
-  TmRegion probe = region_1d(0xB100, 0, 64, 64);
+  Tensor probe = tensor_1d(0xB100, 0, 64, 64);
   probe.version = 1;
   HitSink s = collect(&map, probe);
   assert(s.count == 1);
@@ -179,25 +159,25 @@ static void test_lazy_invalidation_and_reuse(void) {
   TmTensorMap map;
   tm_init(&map, g_buf, &cfg);
 
-  TmRegion r = region_1d(0x6000, 0, 128, 128);
-  tm_insert(&map, &r, tm_make_id(0, 5));
+  Tensor r = tensor_1d(0x6000, 0, 128, 128);
+  tm_insert_tensor(&map, &r, 5);
   assert(tm_valid_count(&map) == 1);
 
   tm_sync(&map, 0, 6);
   assert(tm_valid_count(&map) == 0);
-  assert(collect(&map, region_1d(0x6000, 0, 128, 128)).count == 0);
+  assert(collect(&map, tensor_1d(0x6000, 0, 128, 128)).count == 0);
 
   tm_init(&map, g_buf, &cfg);
   for (uint32_t local = 0; local < 8; local++) {
-    TmRegion rr = region_1d(0x7000, 0, 16, 128);
-    tm_insert(&map, &rr, tm_make_id(0, local));
+    Tensor rr = tensor_1d(0x7000, 0, 16, 128);
+    tm_insert_tensor(&map, &rr, (uint16_t)local);
   }
   tm_sync_tensormap(&map, 0, (int32_t)TM_CLEANUP_INTERVAL, TM_CLEANUP_INTERVAL);
   assert(tm_valid_count(&map) == 0);
 
-  TmRegion fresh = region_1d(0x7000, 0, 16, 128);
-  tm_insert(&map, &fresh, tm_make_id(0, 100));
-  HitSink s = collect(&map, region_1d(0x7000, 0, 16, 128));
+  Tensor fresh = tensor_1d(0x7000, 0, 16, 128);
+  tm_insert_tensor(&map, &fresh, 100);
+  HitSink s = collect(&map, tensor_1d(0x7000, 0, 16, 128));
   assert(s.count == 1 && tm_local_of(s.producers[0]) == 100);
 
   printf("  PASSED\n");
@@ -210,8 +190,8 @@ static void test_sync_interval_gating(void) {
   tm_init(&map, g_buf, &cfg);
 
   for (uint32_t i = 0; i < 8; i++) {
-    TmRegion r = region_1d(0xE000, 0, 16, 128);
-    tm_insert(&map, &r, tm_make_id(0, i));
+    Tensor r = tensor_1d(0xE000, 0, 16, 128);
+    tm_insert_tensor(&map, &r, (uint16_t)i);
   }
   assert(tm_hdr(&map)->next_entry_idx == 8);
   assert(tm_hdr(&map)->free_num == 0);
@@ -233,11 +213,11 @@ static void test_remove_in_callback(void) {
   TmTensorMap map;
   tm_init(&map, g_buf, &cfg);
 
-  TmRegion r = region_1d(0x8000, 0, 64, 64);
-  tm_insert(&map, &r, tm_make_id(0, 0));
-  TmRegion probe = region_1d(0x8000, 0, 64, 64);
-  tm_lookup(&map, &probe, remove_cb, &map);
-  assert(collect(&map, region_1d(0x8000, 0, 64, 64)).count == 0);
+  Tensor r = tensor_1d(0x8000, 0, 64, 64);
+  tm_insert_tensor(&map, &r, 0);
+  Tensor probe = tensor_1d(0x8000, 0, 64, 64);
+  tm_lookup_tensor(&map, &probe, remove_cb, &map);
+  assert(collect(&map, tensor_1d(0x8000, 0, 64, 64)).count == 0);
 
   printf("  PASSED\n");
 }
@@ -248,8 +228,8 @@ static void test_attach_relocated_image(void) {
   TmTensorMap map;
   tm_init(&map, g_buf, &cfg);
 
-  TmRegion r = region_1d(0x9000, 0, 128, 128);
-  tm_insert(&map, &r, tm_make_id(1 % cfg.num_rings, 7));
+  Tensor r = tensor_1d(0x9000, 0, 128, 128);
+  tm_insert_tensor(&map, &r, 7);
 
   uint64_t bytes = tm_bytes_required(&cfg);
   assert(bytes <= sizeof(g_buf2));
@@ -257,7 +237,7 @@ static void test_attach_relocated_image(void) {
   TmTensorMap map2;
   tm_attach(&map2, g_buf2);
 
-  HitSink s = collect(&map2, region_1d(0x9000, 0, 128, 128));
+  HitSink s = collect(&map2, tensor_1d(0x9000, 0, 128, 128));
   assert(s.count == 1 && tm_local_of(s.producers[0]) == 7);
   assert(s.statuses[0] == TM_OVERLAP_COVERED);
 
@@ -270,62 +250,33 @@ static void test_multi_producer_same_base(void) {
   TmTensorMap map;
   tm_init(&map, g_buf, &cfg);
 
-  TmRegion p0 = region_1d(0xA000, 0, 64, 256);
-  TmRegion p1 = region_1d(0xA000, 0, 64, 256);
-  tm_insert(&map, &p0, tm_make_id(0, 0));
-  tm_insert(&map, &p1, tm_make_id(0, 1));
-  HitSink s = collect(&map, region_1d(0xA000, 0, 64, 256));
+  Tensor p0 = tensor_1d(0xA000, 0, 64, 256);
+  Tensor p1 = tensor_1d(0xA000, 0, 64, 256);
+  tm_insert_tensor(&map, &p0, 0);
+  tm_insert_tensor(&map, &p1, 1);
+  HitSink s = collect(&map, tensor_1d(0xA000, 0, 64, 256));
   assert(s.count == 2);
 
   printf("  PASSED\n");
 }
 
-static void entry_from_tensor_view(const Tensor *t, TmEntry *e) {
-  memset(e, 0, sizeof *e);
-  e->start_offset = t->start_offset;
-  e->version = t->version;
-  e->ndims = t->ndims;
-  e->elem_size = (uint16_t)t->dtype;
-  e->is_contiguous = t->is_contiguous;
-  memcpy(e->shapes, t->shapes, sizeof e->shapes);
-  e->storage_numel = t->dtype != 0 ? t->buffer_size / (uint64_t)t->dtype : 0u;
-  e->extent_elem_cache = t->extent_elem_cache;
-  memcpy(e->strides, t->strides, sizeof e->strides);
-}
-
-static void probe_from_tensor_view(const Tensor *t, TmProbe *p) {
-  memset(p, 0, sizeof *p);
-  p->base_addr = t->buffer_addr;
-  p->start_offset = t->start_offset;
-  p->version = t->version;
-  p->ndims = t->ndims;
-  p->elem_size = (uint16_t)t->dtype;
-  p->is_contiguous = t->is_contiguous;
-  p->storage_numel = t->dtype != 0 ? t->buffer_size / (uint64_t)t->dtype : 0u;
-  memcpy(p->shapes, t->shapes, sizeof p->shapes);
-  memcpy(p->strides, t->strides, sizeof p->strides);
-  p->extent_elem = t->is_contiguous ? tensor_numel(t) : t->extent_elem_cache;
-}
-
 static void test_qwen3_dim1_column_slice(void) {
   printf("Test: qwen3_dim1_column_slice (gate_tile dim=1 piece overlap)\n");
-  Tensor tile = tensor_make_2d(0xE0000, 16, 17408, FLOAT32);
-  Tensor prod0 = tensor_view(tile, 1, 0, 512);
-  Tensor cons1 = tensor_view(tile, 1, 512, 512);
+  Tensor tile = tensor_from_base_layout(0xE0000, (uint32_t[]){16, 17408}, 2,
+                                        FLOAT32);
+  Tensor prod0 = view(tile, 0, 0, 16, 512);
+  Tensor cons1 = view(tile, 0, 512, 16, 512);
 
   assert(prod0.is_contiguous == 0);
   assert(prod0.strides[0] == 17408u && prod0.strides[1] == 1u);
 
   TmEntry entry;
-  entry_from_tensor_view(&prod0, &entry);
+  tm_copy_tensor_to_entry(&prod0, &entry);
 
-  TmProbe probe;
-  probe_from_tensor_view(&cons1, &probe);
-  assert(tm_check_overlap(&probe, &entry) == TM_OVERLAP_NONE);
+  assert(tm_check_overlap(&cons1, &entry) == TM_OVERLAP_NONE);
 
-  Tensor cons0 = tensor_view(tile, 1, 0, 512);
-  probe_from_tensor_view(&cons0, &probe);
-  assert(tm_check_overlap(&probe, &entry) == TM_OVERLAP_COVERED);
+  Tensor cons0 = view(tile, 0, 0, 16, 512);
+  assert(tm_check_overlap(&cons0, &entry) == TM_OVERLAP_COVERED);
 
   printf("  PASSED\n");
 }
@@ -339,16 +290,16 @@ static void test_2d_row_tile_overlap(void) {
   const uint64_t base = 0xD0000;
   const uint32_t batch = 96, hidden = 5120, tile = 16;
 
-  TmRegion prod = region_2d(base, batch, hidden, 16, tile, hidden, 4);
-  tm_insert(&map, &prod, tm_make_id(0, 3));
+  Tensor prod = tensor_2d_rows(base, batch, hidden, 16, tile);
+  tm_insert_tensor(&map, &prod, 3);
 
-  HitSink hit = collect(&map, region_2d(base, batch, hidden, 16, tile, hidden, 4));
+  HitSink hit = collect(&map, tensor_2d_rows(base, batch, hidden, 16, tile));
   assert(hit.count == 1 && tm_local_of(hit.producers[0]) == 3);
 
-  HitSink miss = collect(&map, region_2d(base, batch, hidden, 0, tile, hidden, 4));
+  HitSink miss = collect(&map, tensor_2d_rows(base, batch, hidden, 0, tile));
   assert(miss.count == 0);
 
-  HitSink part = collect(&map, region_2d(base, batch, hidden, 8, 16, hidden, 4));
+  HitSink part = collect(&map, tensor_2d_rows(base, batch, hidden, 8, 16));
   assert(part.count == 1 && part.statuses[0] == TM_OVERLAP_OTHER);
 
   printf("  PASSED\n");
@@ -363,22 +314,22 @@ static void test_coexistence_demo(void) {
   const uint64_t X = 0xBEEF000;
   const uint64_t Y = 0xCAFE000;
 
-  TmRegion rx = whole_buffer_region(X);
-  TmRegion ry = whole_buffer_region(Y);
-  tm_insert(&map, &rx, tm_make_id(0, 10));
-  tm_insert(&map, &rx, tm_make_id(0, 11));
-  tm_insert(&map, &ry, tm_make_id(0, 12));
+  Tensor rx = tensor_whole_buffer(X);
+  Tensor ry = tensor_whole_buffer(Y);
+  tm_insert_tensor(&map, &rx, 10);
+  tm_insert_tensor(&map, &rx, 11);
+  tm_insert_tensor(&map, &ry, 12);
 
-  HitSink cx = collect(&map, whole_buffer_region(X));
+  HitSink cx = collect(&map, tensor_whole_buffer(X));
   assert(cx.count == 2);
   assert(sink_has_local(&cx, 10) && sink_has_local(&cx, 11));
 
-  HitSink cy = collect(&map, whole_buffer_region(Y));
+  HitSink cy = collect(&map, tensor_whole_buffer(Y));
   assert(cy.count == 1 && sink_has_local(&cy, 12));
 
   tm_sync(&map, 0, 12);
-  assert(collect(&map, whole_buffer_region(X)).count == 0);
-  assert(collect(&map, whole_buffer_region(Y)).count == 1);
+  assert(collect(&map, tensor_whole_buffer(X)).count == 0);
+  assert(collect(&map, tensor_whole_buffer(Y)).count == 1);
 
   printf("  PASSED\n");
 }
@@ -440,8 +391,8 @@ static void bench_insert(uint32_t n) {
 
   const double t0 = now_sec();
   for (uint32_t i = 0; i < n; i++) {
-    TmRegion r = region_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
-    tm_insert(&map, &r, tm_make_id(0, i & (cfg.task_window[0] - 1)));
+    Tensor r = tensor_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
+    tm_insert_tensor(&map, &r, (uint16_t)(i & (cfg.task_window[0] - 1)));
   }
   report("insert", (double)n, now_sec() - t0);
   free(img);
@@ -458,8 +409,8 @@ static void bench_lookup(uint32_t m, uint32_t queries) {
   tm_init(&map, img, &cfg);
 
   for (uint32_t i = 0; i < m; i++) {
-    TmRegion r = region_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
-    tm_insert(&map, &r, tm_make_id(0, i));
+    Tensor r = tensor_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
+    tm_insert_tensor(&map, &r, (uint16_t)i);
   }
 
   uint64_t rng = 0x9E3779B97F4A7C15ULL;
@@ -467,8 +418,8 @@ static void bench_lookup(uint32_t m, uint32_t queries) {
   const double t0 = now_sec();
   for (uint32_t q = 0; q < queries; q++) {
     const uint32_t i = (uint32_t)(perf_rng(&rng) % m);
-    TmRegion probe = region_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
-    tm_lookup(&map, &probe, perf_count_cb, &acc);
+    Tensor probe = tensor_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
+    tm_lookup_tensor(&map, &probe, perf_count_cb, &acc);
   }
   g_perf_sink = acc;
   report("lookup (covered hit)", (double)queries, now_sec() - t0);
@@ -488,20 +439,20 @@ static void bench_submit(uint32_t window, uint32_t per_task, uint32_t iters) {
   uint32_t cur = 0;
   for (uint32_t w = 0; w < window; w++, cur++) {
     for (uint32_t k = 0; k < per_task; k++) {
-      TmRegion r =
-          region_1d(0x200000u + (((uint64_t)cur * per_task + k) & 4095u) * 256u,
+      Tensor r =
+          tensor_1d(0x200000u + (((uint64_t)cur * per_task + k) & 4095u) * 256u,
                     0, 64, 64);
-      tm_insert(&map, &r, tm_make_id(0, cur));
+      tm_insert_tensor(&map, &r, (uint16_t)cur);
     }
   }
 
   const double t0 = now_sec();
   for (uint32_t i = 0; i < iters; i++, cur++) {
     for (uint32_t k = 0; k < per_task; k++) {
-      TmRegion r =
-          region_1d(0x200000u + (((uint64_t)cur * per_task + k) & 4095u) * 256u,
+      Tensor r =
+          tensor_1d(0x200000u + (((uint64_t)cur * per_task + k) & 4095u) * 256u,
                     0, 64, 64);
-      tm_insert(&map, &r, tm_make_id(0, cur));
+      tm_insert_tensor(&map, &r, (uint16_t)cur);
     }
     tm_sync_tensormap(&map, 0, (int32_t)(cur - window + 1), cur);
   }

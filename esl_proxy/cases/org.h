@@ -12,9 +12,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifndef USE_TENSORMAP
-#error "qwen3_dynamic_manual_scope.h requires -DUSE_TENSORMAP for struct Tensor"
-#endif
 
 #include "dispatch.h"
 #include "mem_pool.h"

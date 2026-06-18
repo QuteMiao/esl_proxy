@@ -15,7 +15,8 @@
 
 typedef enum {
     BFLOAT16 = 2,
-    FLOAT32  = 4,
+    FLOAT32 = 4,
+    INT32 = 4,
 } dtype_t;
 
 enum { ESL_PROXY_TENSOR_MAX_DIMS = 5 };
@@ -58,9 +59,8 @@ _Static_assert(offsetof(Tensor, extent_elem_cache) == 64,
                "extent_elem_cache must start at byte 64 (cacheline 2)");
 _Static_assert(offsetof(Tensor, strides) == 72, "strides offset");
 
-static inline uint64_t tensor_base(Tensor t)
-{
-    return t.buffer_addr;
+static inline uint64_t tensor_data_addr(const Tensor *t) {
+    return t->buffer_addr + t->start_offset * t->dtype;
 }
 
 static inline uint64_t tensor_numel(const Tensor *t)
@@ -72,106 +72,59 @@ static inline uint64_t tensor_numel(const Tensor *t)
     return n;
 }
 
-/* Element extent hull: 1 + sum((shapes[i]-1)*strides[i]). Matches simpler refresh_derived. */
-static inline uint64_t tensor_extent_elem_hull(const Tensor *t)
-{
-    uint64_t e = 1;
-    for (int32_t i = (int32_t)t->ndims - 1; i >= 0; i--) {
-        if (t->shapes[i] > 0u) {
-            e += (uint64_t)(t->shapes[i] - 1u) * (uint64_t)t->strides[i];
-        }
-    }
-    return e;
-}
-
-static inline void tensor_refresh_derived(Tensor *t)
-{
-    uint64_t expected = 1;
-    uint8_t contig = 1;
-    for (int32_t i = (int32_t)t->ndims - 1; i >= 0; i--) {
-        if (t->strides[i] != expected) {
-            contig = 0;
-        }
-        expected *= t->shapes[i];
-    }
-    t->is_contiguous = contig;
-    t->extent_elem_cache = tensor_extent_elem_hull(t);
-}
-
-static inline void tensor_fill_row_major_strides(uint32_t ndims,
-                                                 const uint32_t shapes[],
-                                                 uint32_t strides_out[])
-{
-    uint32_t s = 1;
-    for (int32_t i = (int32_t)ndims - 1; i >= 0; i--) {
-        strides_out[i] = s;
-        s *= shapes[i];
-    }
-}
-
-static inline Tensor tensor_from_base(uint64_t base)
-{
+static inline Tensor tensor_from_base_layout(uint64_t base, const uint32_t shapes[],
+                                             uint32_t ndims, dtype_t dtype) {
     Tensor t;
-    memset(&t, 0, sizeof t);
-    t.buffer_addr = base;
-    return t;
-}
+    uint64_t numel = 1;
 
-static inline Tensor tensor_make_contiguous(uint64_t base, uint64_t buffer_size,
-                                            const uint32_t shapes[],
-                                            uint32_t ndims, dtype_t dtype)
-{
-    Tensor t;
-    memset(&t, 0, sizeof t);
     t.buffer_addr = base;
-    t.buffer_size = buffer_size;
+    t.buffer_size = 0;
+    t.owner_task_id = 0;
     t.start_offset = 0;
     t.version = 0;
-    t.owner_task_id = 0;
     t.ndims = ndims;
     t.dtype = (uint8_t)dtype;
     t.manual_dep = 0;
-    t.is_contiguous = 1;
     for (uint32_t i = 0; i < ndims; i++) {
         t.shapes[i] = shapes[i];
+        numel *= shapes[i];
     }
-    tensor_fill_row_major_strides(ndims, t.shapes, t.strides);
-    tensor_refresh_derived(&t);
+    t.buffer_size = numel * dtype;
+
+    uint32_t stride = 1;
+    uint64_t expected = 1;
+    uint8_t contig = 1;
+    uint64_t extent = 1;
+    for (int32_t i = (int32_t)ndims - 1; i >= 0; i--) {
+        t.strides[i] = stride;
+        contig &= t.strides[i] == expected;
+        extent += (t.shapes[i] - 1u) * t.strides[i];
+        expected *= t.shapes[i];
+        stride *= shapes[i];
+    }
+    t.is_contiguous = contig;
+    t.extent_elem_cache = extent;
     return t;
 }
 
-static inline Tensor tensor_make_2d(uint64_t base, uint32_t d0, uint32_t d1, dtype_t dtype)
-{
-    const uint32_t shapes[2] = {d0, d1};
-    const uint64_t buffer_size =
-        (uint64_t)d0 * (uint64_t)d1 * (uint64_t)dtype;
-    return tensor_make_contiguous(base, buffer_size, shapes, 2, dtype);
-}
-
-
-static inline Tensor tensor_view(Tensor t, uint32_t dim, uint32_t off, uint32_t n)
-{
-    if (dim < t.ndims) {
-        t.start_offset += (uint64_t)off * (uint64_t)t.strides[dim];
-        t.shapes[dim] = n;
-        tensor_refresh_derived(&t);
-    }
+static inline Tensor tensor_from_base(uint64_t base) {
+    Tensor t;
+    memset(&t, 0, sizeof t);
+    t.buffer_addr = base;
     return t;
 }
 
-/* 2D subview in one step (simpler view(shapes, offsets)): off/shape per dim 0,1. */
-static inline Tensor tensor_view_2d(Tensor t, uint32_t off0, uint32_t off1, uint32_t n0,
-                                  uint32_t n1)
+static inline Tensor view(Tensor t, uint32_t off0, uint32_t off1, uint32_t n0, uint32_t n1)
 {
-    if (t.ndims >= 2) {
-        t.start_offset += (uint64_t)off0 * (uint64_t)t.strides[0]
-                        + (uint64_t)off1 * (uint64_t)t.strides[1];
-        t.shapes[0] = n0;
-        t.shapes[1] = n1;
-        tensor_refresh_derived(&t);
-    }
-    return t;
+    Tensor v = t;
+    v.ndims = 2;
+    v.start_offset += off0 * v.strides[0] + off1 * v.strides[1];
+    v.shapes[0] = n0;
+    v.shapes[1] = n1;
+    v.is_contiguous = v.strides[1] == 1 && v.strides[0] == v.shapes[1];
+    v.extent_elem_cache =
+        (v.shapes[0] - 1u) * v.strides[0] + (v.shapes[1] - 1u) * v.strides[1];
+    return v;
 }
-
 
 #endif /* ESL_PROXY_TENSOR_H */

@@ -23,11 +23,7 @@
 #include "dispatch.h"
 #include "spin.h"
 
-#ifdef USE_TENSORMAP
 #include "tensor.h"
-#else
-#define Tensor uint64_t
-#endif
 
 extern atomic_int g_task_id;
 extern atomic_int g_min_uncomplete_task;
@@ -61,31 +57,19 @@ static inline void ring_buf_init(void)
 static inline void add_input_ptr(uint16_t task_id, const Tensor *t)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
-#ifdef USE_TENSORMAP
     g_basic_buf[task_id & RING_MASK].data[idx] = t->buffer_addr;
-#else
-    g_basic_buf[task_id & RING_MASK].data[idx] = *t;
-#endif
 }
 
 static inline void add_output_ptr(uint16_t task_id, const Tensor *t)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
-#ifdef USE_TENSORMAP
     g_basic_buf[task_id & RING_MASK].data[idx] = t->buffer_addr;
-#else
-    g_basic_buf[task_id & RING_MASK].data[idx] = *t;
-#endif
 }
 
 static inline void add_inout_ptr(uint16_t task_id, const Tensor *t)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
-#ifdef USE_TENSORMAP
     g_basic_buf[task_id & RING_MASK].data[idx] = t->buffer_addr;
-#else
-    g_basic_buf[task_id & RING_MASK].data[idx] = *t;
-#endif
 }
 
 #define add_input(task_id, t)                                          \
