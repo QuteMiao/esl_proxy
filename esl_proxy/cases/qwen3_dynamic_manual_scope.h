@@ -247,10 +247,8 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         add_scalar(g_task_id, slot_offset);
         add_scalar(g_task_id, b);
         batch_predecessors[0] = qk_norm_per_tile[tix];
-        for (int i = 0; i < (int)v_cnt_per_tile[tix]; i++)
-            batch_predecessors[1 + i] = v_ids_per_tile[tix][i];
-        add_predecessors(g_task_id, batch_predecessors,
-                         (uint16_t)(1 + v_cnt_per_tile[tix]), 0);
+        int tmp = add_predecessors(g_task_id, batch_predecessors, 1, 0);
+        add_predecessors(g_task_id, v_ids_per_tile[tix], v_cnt_per_tile[tix], tmp);
         const uint16_t rope_id = g_task_id;
         g_task_id++;
         
@@ -352,15 +350,14 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
             add_scalar(g_task_id, b0);
             add_scalar(g_task_id, cur_valid);
             add_scalar(g_task_id, base);
-            {
-                uint16_t os_preds[64];
-                int nos = 0;
-                for (int64_t row = 0; row < cur_valid; row++) {
-                    const int64_t bb = b0 + row;
-                    for (int i = 0; i < os_cnt_by_b[bb]; i++)
-                        os_preds[nos++] = os_by_b[bb][i];
-                }
-                add_predecessors(g_task_id, os_preds, (uint16_t)nos, 0);
+            uint16_t idx = 0;
+            for (int64_t row = 0; row < cur_valid; row++) {
+                const int64_t bb = b0 + row;
+                // for (size_t i = 0; i < os_cnt_by_b[bb]; i++)
+                // {
+                //     printf("os_by_b[%d][%d],%d\n",bb,i, os_by_b[bb][i]);
+                // }
+                idx = add_predecessors(g_task_id, os_by_b[bb], os_cnt_by_b[bb], idx);
             }
             op_ids[opi++] = g_task_id;
             g_task_id++;
