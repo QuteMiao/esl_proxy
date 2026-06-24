@@ -114,9 +114,10 @@ static inline Tensor tensor_from_base(uint64_t base) {
     return t;
 }
 
-static inline Tensor view(Tensor t, uint32_t off0, uint32_t off1, uint32_t n0, uint32_t n1)
+static inline Tensor view_at(const Tensor *t, uint32_t off0, uint32_t off1,
+                             uint32_t n0, uint32_t n1)
 {
-    Tensor v = t;
+    Tensor v = *t;
     v.ndims = 2;
     v.start_offset += off0 * v.strides[0] + off1 * v.strides[1];
     v.shapes[0] = n0;
@@ -126,5 +127,10 @@ static inline Tensor view(Tensor t, uint32_t off0, uint32_t off1, uint32_t n0, u
         (v.shapes[0] - 1u) * v.strides[0] + (v.shapes[1] - 1u) * v.strides[1];
     return v;
 }
+
+/* view() keeps its by-value call interface (returns a Tensor) but avoids
+ * copying the source Tensor into a parameter: the macro passes its address to
+ * view_at(). All call sites pass an lvalue as the first argument. */
+#define view(t, off0, off1, n0, n1) view_at(&(t), (off0), (off1), (n0), (n1))
 
 #endif /* ESL_PROXY_TENSOR_H */

@@ -54,39 +54,24 @@ static inline void ring_buf_init(void)
     atomic_store(&g_predecessor_ring.start, g_predecessor_ring.head);
 }
 
-static inline void add_input_ptr(uint16_t task_id, const Tensor *t)
+/* input/output/inout tensors are all recorded the same way: append the
+ * tensor's buffer_addr to data[] and bump tensor_cnt. task_desc keeps a single
+ * flat data[]/tensor_cnt with no direction field, so there is one implementation
+ * here; the dependency direction (when needed) is tracked by the tensormap
+ * layer, not the ring buffer. The distinct add_input/output/inout spellings are
+ * kept only for call-site readability. */
+static inline void add_tensor_addr(uint16_t task_id, uint64_t addr)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
-    g_basic_buf[task_id & RING_MASK].data[idx] = t->buffer_addr;
+    g_basic_buf[task_id & RING_MASK].data[idx] = addr;
 }
 
-static inline void add_output_ptr(uint16_t task_id, const Tensor *t)
-{
-    int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
-    g_basic_buf[task_id & RING_MASK].data[idx] = t->buffer_addr;
-}
-
-static inline void add_inout_ptr(uint16_t task_id, const Tensor *t)
-{
-    int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
-    g_basic_buf[task_id & RING_MASK].data[idx] = t->buffer_addr;
-}
-
-#define add_input(task_id, t)                                          \
-    do {                                                               \
-        Tensor _tm_tensor_tmp_ = (t);                                    \
-        add_input_ptr((task_id), &_tm_tensor_tmp_);                    \
-    } while (0)
-#define add_output(task_id, t)                                         \
-    do {                                                               \
-        Tensor _tm_tensor_tmp_ = (t);                                  \
-        add_output_ptr((task_id), &_tm_tensor_tmp_);                   \
-    } while (0)
-#define add_inout(task_id, t)                                          \
-    do {                                                               \
-        Tensor _tm_tensor_tmp_ = (t);                                  \
-        add_inout_ptr((task_id), &_tm_tensor_tmp_);                    \
-    } while (0)
+/* Only buffer_addr is recorded, so the macros read that 8-byte field directly
+ * instead of copying the whole 128B Tensor. (t).buffer_addr is valid for both
+ * lvalue and rvalue arguments, e.g. add_input(id, view(x, ...)). */
+#define add_input(task_id, t)  add_tensor_addr((task_id), (t).buffer_addr)
+#define add_output(task_id, t) add_tensor_addr((task_id), (t).buffer_addr)
+#define add_inout(task_id, t)  add_tensor_addr((task_id), (t).buffer_addr)
 
 static inline void add_scalar(uint16_t task_id, int64_t t)
 {

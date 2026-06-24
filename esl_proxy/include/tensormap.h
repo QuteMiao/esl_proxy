@@ -128,33 +128,42 @@ static inline void tm_deps_init(void) {
 }
 
 static inline void tm_in_ptr(uint16_t tid, const Tensor *t) {
-    add_input_ptr(tid, t);
+    add_tensor_addr(tid, t->buffer_addr);
     tm_pending_push(t, TM_PEND_IN);
 }
 
 static inline void tm_in_ro_ptr(uint16_t tid, const Tensor *t) {
-    add_input_ptr(tid, t);
+    add_tensor_addr(tid, t->buffer_addr);
 }
 
 static inline void tm_out_ro_ptr(uint16_t tid, const Tensor *t) {
-    add_output_ptr(tid, t);
+    add_tensor_addr(tid, t->buffer_addr);
 }
 
 static inline void tm_inout_ro_ptr(uint16_t tid, const Tensor *t) {
-    add_inout_ptr(tid, t);
+    add_tensor_addr(tid, t->buffer_addr);
 }
 
 static inline void tm_out_ptr(uint16_t tid, const Tensor *t) {
-    add_output_ptr(tid, t);
+    add_tensor_addr(tid, t->buffer_addr);
     tm_pending_push(t, TM_PEND_OUT);
 }
 
 static inline void tm_inout_ptr(uint16_t tid, const Tensor *t) {
-    add_inout_ptr(tid, t);
+    add_tensor_addr(tid, t->buffer_addr);
     tm_pending_push(t, TM_PEND_INOUT);
 }
 
 static inline void tm_submit_ptr(uint16_t tid) {
+    /* STEP 0: advance the alive watermark and cleanup retired entries before
+     * the fanin lookup, matching PTO2 submit_task ordering. Doing it first uses
+     * a fresher min_uncomplete_task (avoids depending on a just-completed
+     * producer) and frees pool slots before this task's inserts. */
+    tm_sync_tensormap(
+        &g_tm_deps.map, 0,
+        (int32_t)atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire),
+        tid);
+
     TmCollectCtx ctx = {.consumer = tid, .pn = 0};
     int i;
 
@@ -174,10 +183,6 @@ static inline void tm_submit_ptr(uint16_t tid) {
         }
     }
     tm_pending_clear();
-    tm_sync_tensormap(
-        &g_tm_deps.map, 0,
-        (int32_t)atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire),
-        tid);
 }
 
 #define tm_in(tid, t) tm_in_ptr((tid), &(t))

@@ -68,9 +68,10 @@ typedef struct {
     uint64_t start_offset;
     int32_t version;
     uint32_t ndims;
-    uint16_t elem_size;
+    uint8_t dtype;
     uint8_t manual_dep;
     uint8_t is_contiguous;
+    uint8_t __padding1__;
     uint32_t shapes[TM_MAX_DIMS];
 
     /* === cache line 2 (64B) === */
@@ -85,6 +86,24 @@ typedef struct {
 
 _Static_assert(sizeof(TmEntry) == 128, "TmEntry must be 128 bytes");
 
+/* Cache line 1 must mirror Tensor byte-for-byte so tm_copy_tensor_to_entry()
+ * can copy it with one 64B memcpy. Keep these in sync with tensor.h. */
+_Static_assert(offsetof(TmEntry, base_addr) == 0, "base_addr offset");
+_Static_assert(offsetof(TmEntry, producer_id) == 16, "producer_id offset");
+_Static_assert(offsetof(TmEntry, start_offset) == 24, "start_offset offset");
+_Static_assert(offsetof(TmEntry, version) == 32, "version offset");
+_Static_assert(offsetof(TmEntry, ndims) == 36, "ndims offset");
+_Static_assert(offsetof(TmEntry, dtype) == 40, "dtype offset");
+_Static_assert(offsetof(TmEntry, manual_dep) == 41, "manual_dep offset");
+_Static_assert(offsetof(TmEntry, is_contiguous) == 42, "is_contiguous offset");
+_Static_assert(offsetof(TmEntry, shapes) == 44, "shapes offset");
+_Static_assert(offsetof(TmEntry, base_addr) == offsetof(Tensor, buffer_addr),
+               "base_addr must overlay Tensor::buffer_addr");
+_Static_assert(offsetof(TmEntry, start_offset) == offsetof(Tensor, start_offset),
+               "start_offset must overlay Tensor::start_offset");
+_Static_assert(offsetof(TmEntry, shapes) == offsetof(Tensor, shapes),
+               "shapes must overlay Tensor::shapes");
+
 typedef struct TmHeader {
     TmConfig cfg;
     int32_t next_entry_idx;
@@ -97,8 +116,15 @@ typedef struct TmHeader {
     uint32_t off_task_heads[TM_MAX_RINGS];
 } TmHeader;
 
+/* Region pointers are bound once (tm_init / tm_attach) from the header offsets,
+ * so hot-path accessors are plain member reads instead of base+offset each call.
+ * Rebind via tm_attach() if the backing memory is relocated. */
 typedef struct TmTensorMap {
-    uint8_t *base;
+    TmHeader *hdr; /* arena base; header lives at offset 0 */
+    int32_t *buckets;
+    TmEntry *pool;
+    int32_t *free_list;
+    int32_t *task_heads[TM_MAX_RINGS];
 } TmTensorMap;
 
 typedef bool (*TmMatchFn)(TmEntry *entry, TmOverlap status, void *ctx);
@@ -185,7 +211,7 @@ static inline TmOverlap tm_check_overlap(const Tensor *in, const TmEntry *e) {
             return TM_OVERLAP_NONE;
         }
 
-        if ((uint16_t)in->dtype != e->elem_size) {
+        if (in->dtype != e->dtype) {
             return TM_OVERLAP_OTHER;
         }
         if (in->strides[0] != e->strides[0] || in->strides[1] != e->strides[1]) {
@@ -271,7 +297,7 @@ static inline TmOverlap tm_check_overlap(const Tensor *in, const TmEntry *e) {
         return TM_OVERLAP_NONE;
     }
 
-    if ((uint16_t)in->dtype != e->elem_size || in->ndims != e->ndims ||
+    if (in->dtype != e->dtype || in->ndims != e->ndims ||
         in->ndims == 0) {
         return TM_OVERLAP_OTHER;
     }
@@ -342,19 +368,33 @@ static inline TmOverlap tm_check_overlap(const Tensor *in, const TmEntry *e) {
 /* ---- in-buffer accessors ------------------------------------------------- */
 
 static inline TmHeader *tm_hdr(const TmTensorMap *self) {
-    return (TmHeader *)self->base;
+    return self->hdr;
 }
 static inline int32_t *tm_buckets(const TmTensorMap *self) {
-    return (int32_t *)(self->base + tm_hdr(self)->off_buckets);
+    return self->buckets;
 }
 static inline TmEntry *tm_pool(const TmTensorMap *self) {
-    return (TmEntry *)(self->base + tm_hdr(self)->off_pool);
+    return self->pool;
 }
 static inline int32_t *tm_free_list(const TmTensorMap *self) {
-    return (int32_t *)(self->base + tm_hdr(self)->off_free);
+    return self->free_list;
 }
 static inline int32_t *tm_task_heads(const TmTensorMap *self, uint32_t ring) {
-    return (int32_t *)(self->base + tm_hdr(self)->off_task_heads[ring]);
+    return self->task_heads[ring];
+}
+
+/* Bind the cached region pointers from the header's offset table. Call after
+ * the header is populated (tm_init) or when attaching to a relocated image. */
+static inline void tm_bind(TmTensorMap *self, void *base) {
+    uint8_t *b = (uint8_t *)base;
+    TmHeader *h = (TmHeader *)b;
+    self->hdr = h;
+    self->buckets = (int32_t *)(b + h->off_buckets);
+    self->pool = (TmEntry *)(b + h->off_pool);
+    self->free_list = (int32_t *)(b + h->off_free);
+    for (uint32_t r = 0; r < TM_MAX_RINGS; r++) {
+        self->task_heads[r] = (int32_t *)(b + h->off_task_heads[r]);
+    }
 }
 
 static inline uint32_t tm_hash(const TmTensorMap *self, uint64_t key) {
@@ -449,8 +489,7 @@ static inline uint64_t tm_bytes_required(const TmConfig *cfg) {
 }
 
 static inline void tm_init(TmTensorMap *self, void *base, const TmConfig *cfg) {
-    self->base = (uint8_t *)base;
-    TmHeader *h = tm_hdr(self);
+    TmHeader *h = (TmHeader *)base;
     h->cfg = *cfg;
     h->next_entry_idx = 0;
     h->free_num = 0;
@@ -460,6 +499,7 @@ static inline void tm_init(TmTensorMap *self, void *base, const TmConfig *cfg) {
         h->off_task_heads[r] = 0;
     }
     tm_layout(cfg, h);
+    tm_bind(self, base); /* offsets now populated; bind cached region pointers */
 
     int32_t *bk = tm_buckets(self);
     for (uint32_t i = 0; i < cfg->num_buckets; i++) {
@@ -467,7 +507,6 @@ static inline void tm_init(TmTensorMap *self, void *base, const TmConfig *cfg) {
     }
     TmEntry *pl = tm_pool(self);
     for (uint32_t i = 0; i < cfg->pool_size; i++) {
-        memset(&pl[i], 0, sizeof(TmEntry));
         pl[i].bucket_index = -1;
         pl[i].next_in_bucket = pl[i].prev_in_bucket = -1;
         pl[i].next_in_task = pl[i].prev_in_task = -1;
@@ -481,39 +520,34 @@ static inline void tm_init(TmTensorMap *self, void *base, const TmConfig *cfg) {
 }
 
 static inline void tm_attach(TmTensorMap *self, void *base) {
-    self->base = (uint8_t *)base;
-}
-
-static inline bool tm_tensor_strides_row_major(const Tensor *t) {
-    uint32_t expected = 1u;
-    for (int32_t i = (int32_t)t->ndims - 1; i >= 0; i--) {
-        if (t->strides[i] != expected) {
-            return false;
-        }
-        expected *= t->shapes[i];
-    }
-    return true;
+    tm_bind(self, base);
 }
 
 static inline void tm_copy_tensor_to_entry(const Tensor *t, TmEntry *e) {
-    e->base_addr = t->buffer_addr;
-    /* Bytes [24,40): start_offset, version, ndims — match TmEntry layout. */
-    memcpy((uint8_t *)e + 24, (const uint8_t *)t + 24, 16);
-    e->elem_size = (uint16_t)t->dtype;
-    e->manual_dep = t->manual_dep;
-    e->is_contiguous = t->is_contiguous;
-    memcpy(e->shapes, t->shapes, sizeof e->shapes);
-    if (t->is_contiguous && t->start_offset == 0 &&
-        tm_tensor_strides_row_major(t)) {
-        uint64_t numel = 1;
-        for (uint32_t i = 0; i < t->ndims; i++) {
-            numel *= t->shapes[i];
-        }
-        e->extent_elem_cache = numel;
-        uint32_t s = 1;
-        for (int32_t i = (int32_t)t->ndims - 1; i >= 0; i--) {
-            e->strides[i] = s;
-            s *= t->shapes[i];
+    /* Cache line 1 is byte-identical to Tensor (see TmEntry static_asserts), so
+     * one 64B copy populates base_addr, start_offset, version, ndims, dtype,
+     * manual_dep, is_contiguous and shapes[]. The copy also writes Tensor's
+     * buffer_size/owner_task_id over next_in_bucket/_pad_nb/producer_id, which
+     * is harmless: tm_link_entry() overwrites those right after. Cache line 2
+     * (extent/strides) is derived below, so the producer's line 2 stays cold
+     * for canonically-contiguous tensors. */
+    memcpy(e, t, 64);
+    if (t->is_contiguous && t->start_offset == 0) {
+        if (t->ndims == 2u) {
+            e->extent_elem_cache = (uint64_t)t->shapes[0] * t->shapes[1];
+            e->strides[0] = t->shapes[1];
+            e->strides[1] = 1u;
+        } else {
+            uint64_t numel = 1;
+            for (uint32_t i = 0; i < t->ndims; i++) {
+                numel *= t->shapes[i];
+            }
+            e->extent_elem_cache = numel;
+            uint32_t s = 1;
+            for (int32_t i = (int32_t)t->ndims - 1; i >= 0; i--) {
+                e->strides[i] = s;
+                s *= t->shapes[i];
+            }
         }
     } else {
         e->extent_elem_cache = t->extent_elem_cache;
