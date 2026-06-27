@@ -16,7 +16,7 @@ CFLAGS=(
   -I "${ESL_DIR}/include"
   -I "${ESL_DIR}/cases"
   -I "${DEP_DUMP_DIR}"
-  -DUSE_TENSORMAP -DDEP_DUMP=1
+  -DDEP_DUMP=1
 )
 
 mkdir -p "${OUT_DIR}"

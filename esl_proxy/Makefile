@@ -19,6 +19,7 @@
 #   make clean
 #
 # CASE selects which cases/*.h orchestration header main.c compiles in.
+# Algorithm / platform sim source lists: ../build/sources.sh
 
 ALL_CASES := \
 	qwen3_dynamic_manual_scope.h \
@@ -35,9 +36,19 @@ endif
 QWEN3_CASES := qwen3_dynamic_manual_scope.h qwen3_dynamic_tensormap.h
 
 CC       := cc
+CXX      := c++
 # -MMD -MP emits a .d alongside each .o listing the headers it included, so a
 # change to any include/*.h (e.g. tensormap.h) rebuilds the dependent objects.
-CFLAGS   := -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L -I include -I cases -DORCH_CASE=$(CASE) -MMD -MP -Wno-error=implicit-function-declaration
+CFLAGS   := -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L \
+	-I include/algorithm -I include/platform -I include/platform/sim \
+	-I include/platform/onboard -I include/swimlane \
+	-I cases -DORCH_CASE=$(CASE) -MMD -MP -Wno-error=implicit-function-declaration
+
+CXXFLAGS := -g -std=c++17 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L \
+	-I include/algorithm -I include/platform -I include/platform/sim \
+	-I include/platform/onboard -I include/swimlane \
+	-I cases -DORCH_CASE=$(CASE) -MMD -MP -Wno-error=implicit-function-declaration \
+	-DESL_PROXY_AICORE_HOST
 
 # -latomic is needed on Linux but not on macOS (clang)
 UNAME_S  := $(shell uname -s)
@@ -47,19 +58,21 @@ else
     LDFLAGS  := -lpthread
 endif
 
-# All four cases use struct Tensor / tensormap helpers.
 # Qwen3 only: default spmd-4 tier; override via make QWEN3_SPMD_TIER=N.
 ifneq ($(filter $(CASE),$(QWEN3_CASES)),)
-QWEN3_SPMD_TIER ?= 2
+QWEN3_SPMD_TIER ?= 0
 CFLAGS   += -DQWEN3_SPMD_TIER=$(QWEN3_SPMD_TIER)
+CXXFLAGS += -DQWEN3_SPMD_TIER=$(QWEN3_SPMD_TIER)
 endif
 
 ifneq ($(MAIN_LOG),)
 CFLAGS   += -DMAIN_LOG=$(MAIN_LOG)
+CXXFLAGS += -DMAIN_LOG=$(MAIN_LOG)
 endif
 
 ifneq ($(EXTRA_CFLAGS),)
 CFLAGS   += $(EXTRA_CFLAGS)
+CXXFLAGS += $(EXTRA_CFLAGS)
 endif
 
 OBJ_DIR := build/obj
@@ -68,29 +81,62 @@ TARGET  := $(BIN_DIR)/esl_proxy
 
 SRCS := \
 	src/main.c \
-	src/executor.c \
-	src/dispatch.c \
-	src/cutter.c \
-	src/manager.c \
-	src/log.c \
-	src/shm.c
+	src/algorithm/dispatch.c \
+	src/algorithm/dispatch_expand.c \
+	src/algorithm/cutter.c \
+	src/algorithm/executor.c \
+	src/algorithm/handshake.c \
+	src/platform/sim/platform_init.c \
+	src/platform/sim/platform_regs.c \
+	src/platform/sim/cache_ops.c \
+	src/platform/sim/platform_sim.c \
+	src/platform/sim/sim_core_regs.c \
+	src/platform/sim/aicore.c \
+	src/platform/sim/device_runner.c \
+	src/algorithm/manager.c \
+	src/algorithm/log.c \
+	src/algorithm/shm.c \
+	src/algorithm/aicore_executor.c
 
-OBJS := $(SRCS:src/%.c=$(OBJ_DIR)/%.o)
-DEPS := $(OBJS:.o=.d)
+CXXSRCS := \
+	src/platform/sim/aicore_wrapper.cpp
+
+OBJS := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS))
+CXXOBJS := $(patsubst src/%.cpp,$(OBJ_DIR)/%.o,$(CXXSRCS))
+DEPS := $(OBJS:.o=.d) $(CXXOBJS:.o=.d)
 
 # Rebuild orchestration when case or orch-related flags change.
 ORCH_STAMP := $(OBJ_DIR)/.orch-stamp
 ORCH_CONFIG := case=$(CASE) tier=$(QWEN3_SPMD_TIER) log=$(MAIN_LOG)
 
-.PHONY: all run clean force test-tensormap
+.PHONY: all run asm clean force test-tensormap
+
+# Default target is the sim binary (matches main). `asm` precedes `all` textually,
+# so pin the default goal explicitly instead of relying on rule order.
+.DEFAULT_GOAL := all
+
+# Generate .s assembly: sim → gcc -S; onboard AICore → ccec .o + tools/obj_to_gas.py
+# Requires ASCEND_HOME_PATH for AICore output (see ../tools/gen_asm.sh).
+asm:
+	bash ../tools/gen_asm.sh
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS) | $(BIN_DIR)
-	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
+gen-dag:
+	bash ../tools/gen_all_dags.sh
+
+$(TARGET): $(OBJS) $(CXXOBJS) | $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) $(OBJS) $(CXXOBJS) -o $@ $(LDFLAGS)
+
+$(OBJ_DIR)/algorithm/aicore_executor.o: CFLAGS += -DESL_PROXY_AICORE_HOST
 
 $(OBJ_DIR)/%.o: src/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/%.o: src/%.cpp | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Rebuild main.o whenever orchestration config changes.
 $(OBJ_DIR)/main.o: $(ORCH_STAMP)
@@ -107,7 +153,7 @@ run: all
 test-tensormap: $(BIN_DIR)/test_tensormap
 	$(BIN_DIR)/test_tensormap
 
-TEST_TENSORMAP_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -O2 -D_POSIX_C_SOURCE=200809L -I include
+TEST_TENSORMAP_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -O2 -D_POSIX_C_SOURCE=200809L -I include/algorithm
 
 $(BIN_DIR)/test_tensormap: tests/test_tensormap.c | $(BIN_DIR)
 	$(CC) $(TEST_TENSORMAP_CFLAGS) tests/test_tensormap.c -o $@ $(LDFLAGS)
