@@ -17,19 +17,23 @@ atomic_int g_completed_cnt = 0;
 atomic_bool g_is_done = false;
 atomic_bool g_orch_is_done = false;
 
-
 struct task_desc g_basic_buf[RING_SIZE];
+atomic_flag g_lock_buf[RING_SIZE];
 struct node_list g_successor_buf[RING_SIZE];
 struct node_list g_successor_exp_buf[HALF_RING_SIZE];
 
 struct predecessor_list g_predecessors[RING_SIZE];
 struct ring_buf g_predecessor_ring;
+uint16_t predecessor_storage[NODE_BUFF_SIZE];
+
+task_state state_storage[RING_SIZE];
+task_state *g_state_buf = state_storage;
 
 uint16_t g_task_id_buf[RING_SIZE];
 executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
-atomic_flag g_lock_buf[RING_SIZE];
 mem_pool_t g_mem_pool;
 ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
+int __attribute__((weak)) g_subtask_cnt = 0;
 
 void init_predecessors(void)
 {

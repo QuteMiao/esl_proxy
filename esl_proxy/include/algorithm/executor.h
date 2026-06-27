@@ -12,10 +12,9 @@
 #define EXECUTOR_H
 
 #include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
 
 #include "conf.h"
+#define EXEC_SLOT_EMPTY ((uint16_t)0xFFFF)
 
 /*
  * Executor

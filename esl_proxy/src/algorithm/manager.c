@@ -7,6 +7,7 @@
 
 #include "manager.h"
 #include "log.h"
+#include "mem_pool.h"
 
 /*
  * Manager thread entry point

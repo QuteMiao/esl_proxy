@@ -1,16 +1,18 @@
 #ifndef CONF_H
 #define CONF_H
 
+#include "worker_map.h"
+
 #define RING_SIZE 4096
 #define RING_MASK (RING_SIZE - 1)
 #define HALF_RING_SIZE 2048
-#define NODE_BUFF_SIZE 8192
+#define NODE_BUFF_SIZE 65536
 
 // TODO: ERROR
-#define CON_NODE_CNT 32
+#define CON_NODE_CNT 256
 
 #define AIC_OSTD 2
-#define AIC_CNT 60
+#define AIC_CNT ESL_PROXY_WORKER_BLOCK_DIM
 #define EXE_TYPE_CNT 2
 
 #define CUTTER_BATCH_SIZE 512
@@ -23,7 +25,9 @@
 #define EXECUTOR_THREAD_CNT 1
 
 /* 1: compile in worker logs; toggle at runtime via g_worker_log or WORKER_LOG env */
+#ifndef WORKER_LOG
 #define WORKER_LOG 1
+#endif
 
 /* 1: compile in main thread logs; output to screen only */
 #ifndef MAIN_LOG

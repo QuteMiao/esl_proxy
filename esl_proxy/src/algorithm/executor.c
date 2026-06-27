@@ -9,7 +9,6 @@
 #define _POSIX_C_SOURCE 199309L
 
 #include "conf.h"
-#include <time.h>
 #include "log.h"
 #include "executor.h"
 #include "dispatch.h"
@@ -25,7 +24,7 @@ void executor_init(void)
         for (int core = 0; core < AIC_CNT; core++) {
             g_executors[exe_type][core].idx = AIC_OSTD;
             for (int i = 0; i < AIC_OSTD; i++) {
-                g_executors[exe_type][core].tasks[i] = 0;
+                g_executors[exe_type][core].tasks[i] = EXEC_SLOT_EMPTY;
                 g_executors[exe_type][core].block_idx[i] = 0;
                 g_executors[exe_type][core].duration[i] = 0;
                 g_executors[exe_type][core].base[i] = 0;

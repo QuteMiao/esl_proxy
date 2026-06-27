@@ -157,29 +157,87 @@ def render_dot(dot_path, output_path, format='svg'):
         print(f"Error rendering DOT: {e}")
         return False
 
+def analyze(task_types, edges):
+    """Print DAG shape statistics."""
+    from collections import Counter, defaultdict, deque
+
+    nodes = set(task_types.keys())
+    for t, p in edges:
+        nodes.add(t)
+        nodes.add(p)
+    indeg = Counter()
+    outdeg = Counter()
+    adj = defaultdict(list)
+    for t, p in edges:
+        adj[p].append(t)
+        indeg[t] += 1
+        outdeg[p] += 1
+    tc = Counter(task_types.values())
+    sources = [n for n in nodes if indeg[n] == 0]
+    sinks = [n for n in nodes if outdeg[n] == 0]
+    level = {}
+    q = deque()
+    for s in sources:
+        level[s] = 0
+        q.append(s)
+    while q:
+        u = q.popleft()
+        for v in adj[u]:
+            nv = level[u] + 1
+            if v not in level or level[v] < nv:
+                level[v] = nv
+                q.append(v)
+    depth = max(level.values()) + 1 if level else 0
+    print(f"  tasks={len(task_types)}  edges={len(edges)}  depth={depth}")
+    print(f"  types: CUBE={tc[0]} VECTOR={tc[1]} MIX={tc[2]}")
+    print(f"  sources={len(sources)}  sinks={len(sinks)}  max_in={max(indeg.values()) if indeg else 0}  max_out={max(outdeg.values()) if outdeg else 0}")
+
+
+def process_log(log_file, dot_file=None, svg_file=None):
+    dot_file = dot_file or log_file.replace('.csv', '.dot')
+    svg_file = svg_file or log_file.replace('.csv', '.svg')
+
+    print(f"Parsing: {log_file}")
+    edges, task_types = parse_csv(log_file)
+
+    print(f"Found {len(edges)} dependency edges")
+    print(f"Found {len(task_types)} task type mappings")
+
+    if not edges:
+        print("No dependency edges found in CSV")
+        return False
+
+    analyze(task_types, edges)
+    generate_dot(task_types, edges, dot_file)
+    render_dot(dot_file, svg_file, 'svg')
+    return True
+
+
 def main():
-    log_files = [
-        'esl_proxy/log/pto._thread_0.csv',
-        'esl_proxy/log/pto._thread_1.csv',
-    ]
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description='Generate DAG from pto._thread_*.csv')
+    parser.add_argument('csv', nargs='*', help='CSV log file(s)')
+    parser.add_argument('-o', '--out-dir', help='Output directory for .dot/.svg')
+    args = parser.parse_args()
+
+    if args.csv:
+        log_files = args.csv
+    else:
+        default = os.path.join('esl_proxy', 'log', 'pto._thread_0.csv')
+        log_files = [default]
 
     for log_file in log_files:
-        dot_file = log_file.replace('.csv', '.dot')
-        svg_file = log_file.replace('.csv', '.svg')
+        if args.out_dir:
+            base = os.path.splitext(os.path.basename(log_file))[0]
+            dot_file = os.path.join(args.out_dir, base + '.dot')
+            svg_file = os.path.join(args.out_dir, base + '.svg')
+            os.makedirs(args.out_dir, exist_ok=True)
+        else:
+            dot_file = svg_file = None
+        process_log(log_file, dot_file, svg_file)
 
-        print(f"Parsing: {log_file}")
-        edges, task_types = parse_csv(log_file)
-
-        print(f"Found {len(edges)} dependency edges")
-        print(f"Found {len(task_types)} task type mappings")
-
-        if not edges:
-            print("No dependency edges found in CSV")
-            return
-        
-        # Generate DOT file
-        generate_dot(task_types, edges, dot_file)
-        render_dot(dot_file, svg_file, 'svg')
 
 if __name__ == '__main__':
     main()
