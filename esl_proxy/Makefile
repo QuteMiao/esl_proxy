@@ -111,6 +111,10 @@ ORCH_CONFIG := case=$(CASE) tier=$(QWEN3_SPMD_TIER) log=$(MAIN_LOG)
 
 .PHONY: all run asm clean force test-tensormap
 
+# Default target is the sim binary (matches main). `asm` precedes `all` textually,
+# so pin the default goal explicitly instead of relying on rule order.
+.DEFAULT_GOAL := all
+
 # Generate .s assembly: sim → gcc -S; onboard AICore → ccec .o + tools/obj_to_gas.py
 # Requires ASCEND_HOME_PATH for AICore output (see ../tools/gen_asm.sh).
 asm:

@@ -36,6 +36,9 @@ void platform_main_log_vwrite(int line, const char *fmt, va_list args);
 void cache_civac_range(const void *addr, size_t size);
 #define cache_invalidate_range(addr, size) cache_civac_range((addr), (size))
 #define cache_flush_range(addr, size)      cache_civac_range((addr), (size))
+/* Batched: cache_civac_lines() per region (no barrier) + one cache_civac_barrier(). */
+void cache_civac_lines(const void *addr, size_t size);
+void cache_civac_barrier(void);
 #endif
 
 /* Dispatch loop exit: publish final scheduler stats (onboard writes device_wall; sim: no-op). */

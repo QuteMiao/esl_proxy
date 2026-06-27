@@ -105,9 +105,11 @@ static inline int send_task(ctrl_t *ctrl, int type)
         int core = (int)idx;
         /* 下发任务；被拒绝时回退入队此单任务并结束本轮。 */
         int rc = 0;
-        cache_invalidate_range(&g_basic_buf[task_id], sizeof(g_basic_buf[task_id]));
-        cache_invalidate_range(&g_predecessors[task_id], sizeof(g_predecessors[task_id]));
-        cache_invalidate_range(&g_predecessor_cnt[task_id], sizeof(g_predecessor_cnt[task_id]));
+        /* 批量失效:3 段 dc civac 连发 + 一个 dsb sy（替代 3 个屏障） */
+        cache_civac_lines(&g_basic_buf[task_id], sizeof(g_basic_buf[task_id]));
+        cache_civac_lines(&g_predecessors[task_id], sizeof(g_predecessors[task_id]));
+        cache_civac_lines(&g_predecessor_cnt[task_id], sizeof(g_predecessor_cnt[task_id]));
+        cache_civac_barrier();
 
         if (slot == 1) {
             ctrl->task_id_map2[type][idx] = task_id;

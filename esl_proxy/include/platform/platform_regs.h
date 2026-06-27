@@ -34,6 +34,11 @@ void cache_civac_range(const void *addr, size_t size);
 #define cache_invalidate_range(addr, size) cache_civac_range((addr), (size))
 #define cache_flush_range(addr, size)      cache_civac_range((addr), (size))
 
+/* Batched form: issue dc civac over N regions with cache_civac_lines(), then ONE
+ * cache_civac_barrier() — replaces N separate dsb sy with a single trailing one. */
+void cache_civac_lines(const void *addr, size_t size);
+void cache_civac_barrier(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -76,7 +76,7 @@ static void build_payload(EslDispatchPayload *out, const struct task_desc *desc,
     out->args[1] = (uint64_t)desc->jitter_mask;
     out->local_block_idx = (int32_t)block_idx;
     out->local_block_num = (int32_t)desc->count;
-    out->async_task_token = UINT64_MAX;
+    out->async_task_token = (uint64_t)desc->id;   /* 编排 task_id，供 L2 swimlane 标识真实 kernel */
     out->args[48] = (uint64_t)(uintptr_t)&out->local_block_idx;
     out->args[49] = (uint64_t)(uintptr_t)&out->global_sub_block_id;
     out->not_ready = 0U;

@@ -60,9 +60,11 @@ void add_successors(uint16_t ready_cnt[], uint16_t rq_buf[][LOCAL_BUFFER_SIZE]) 
     while (commit < end) {
         uint16_t task_idx = commit;
         const uint16_t slot = (uint16_t)(task_idx & RING_MASK);
-        cache_invalidate_range(&g_basic_buf[slot], sizeof(g_basic_buf[slot]));
-        cache_invalidate_range(&g_predecessors[task_idx], sizeof(g_predecessors[task_idx]));
-        cache_invalidate_range(&g_predecessor_cnt[slot], sizeof(g_predecessor_cnt[slot]));
+        /* 批量失效:3 段 dc civac 连发 + 一个 dsb sy（替代 3 个屏障） */
+        cache_civac_lines(&g_basic_buf[slot], sizeof(g_basic_buf[slot]));
+        cache_civac_lines(&g_predecessors[task_idx], sizeof(g_predecessors[task_idx]));
+        cache_civac_lines(&g_predecessor_cnt[slot], sizeof(g_predecessor_cnt[slot]));
+        cache_civac_barrier();
 
         struct predecessor_list *ptr = &g_predecessors[task_idx];
         if (ptr->cnt <= 0) {

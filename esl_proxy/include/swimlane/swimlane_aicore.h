@@ -84,7 +84,8 @@ __aicore__ __attribute__((always_inline)) static inline void l2_swimlane_aicore_
 #define ESL_SWIMLANE_AICORE_TASK_RECORD(swim_local, swim_head, exec_payload, task_id, start_time) \
     do { \
         if ((swim_head) != NULL) { \
-            uint64_t _esl_sw_token = (uint64_t)(task_id); \
+            /* token = 编排 task_id（payload 携带），区分 qk/sf/pv/online；reg_task_id 仍作消歧 */ \
+            uint64_t _esl_sw_token = (uint64_t)((exec_payload)->async_task_token); \
             ESL_SWIMLANE_AICORE_RECORD_TASK((swim_head), &(swim_local), _esl_sw_token, (task_id), (start_time), \
                                             get_sys_cnt_aicore()); \
         } \

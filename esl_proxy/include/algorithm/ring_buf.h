@@ -110,7 +110,10 @@ static int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t n, uin
         if (target[i] < min_uncomplete_task)
             continue;
         WORKER_LOGF("succeed,task_id,%u,predecessor_id,%u,idx,%d", task_id, target[i], cnt);
-        uint16_t* idx = atomic_fetch_add(&g_predecessor_ring.tail, 1);
+        /* tail 是 uint16_t*：gcc 的 atomic_fetch_add 不做指针缩放（+1 只前进 1 字节，
+         * 导致 ring 错位）。改用 load + idx+1 的真指针算术（+2 字节）。单生产者，relaxed 即可。 */
+        uint16_t* idx = atomic_load_explicit(&g_predecessor_ring.tail, memory_order_relaxed);
+        atomic_store_explicit(&g_predecessor_ring.tail, idx + 1, memory_order_relaxed);
         *idx = target[i];
         cnt++;
     }
