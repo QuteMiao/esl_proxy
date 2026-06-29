@@ -1,97 +1,88 @@
 # esl_proxy
 
-AICPU 编排（Orchestrator）代理：编译时选择 case 头文件，运行编排逻辑并输出 task / subtask 统计。当前默认**仅跑编排**，不启动 Scheduler（dispatch / cutter 线程）。
+AICPU 编排 + 调度代理：算法层 + Ascend onboard/sim 平台层，支持主机 sim 与真机 NPU。
 
-## 构建与运行
+**运行方式、样例说明、最新变更与逐文件修改清单**见 [doc/overview.md](doc/overview.md)。
 
-工作目录：
+## 快速运行
 
 ```bash
-cd esl_proxy
+# Sim（工作目录 esl_proxy/）
+cd esl_proxy && make run
+
+# Onboard 全样例 + 泳道图（仓库根目录，需 ASCEND_HOME_PATH）
+bash tools/run_onboard.sh --all-cases --swimlane --npu
 ```
 
-### 四个样例
+## 指定样例
 
-| Case | 说明 |
-|------|------|
-| `qwen3_dynamic_manual_scope.h` | Qwen3 全动态构图 + 任务依赖（manual scope） |
-| `qwen3_dynamic_tensormap.h` | Qwen3 全动态构图 + 数据依赖（tensormap） |
-| `paged_attention_unroll.h` | Paged Attention tensormap 变体 |
-| `paged_attention_unroll_manual_scope.h` | Paged Attention manual scope 变体 |
+四个 case 通过编译期宏 `ORCH_CASE` 选择（Makefile `CASE=` / onboard `--case`）。
+
+| Case | 说明 | non-spmd task_cnt |
+|------|------|------------------:|
+| `qwen3_dynamic_manual_scope.h` | Qwen3 任务依赖 | 3096 |
+| `qwen3_dynamic_tensormap.h` | Qwen3 tensormap | 3096 |
+| `paged_attention_unroll.h` | Paged Attention tensormap | 1920 |
+| `paged_attention_unroll_manual_scope.h` | Paged Attention manual scope | 1920 |
+
+### Sim
+
+工作目录 `esl_proxy/`：
 
 ```bash
-# 默认：qwen3 manual scope，QWEN3_SPMD_TIER=2（spmd-4）
-make run
+# ── 基础选项 ──
+make run                              # 默认 case + instant AICore
+make clean && make all && ./bin/esl_proxy
+make CASE=qwen3_dynamic_manual_scope.h all   # 仅编译
 
-# Qwen3 manual scope
-make CASE=qwen3_dynamic_manual_scope.h run
+# ── 运行所有样例 / 设置样例 ──
+# 四样例依次 benchmark（10 次中位数，仓库根目录）
+bash ../tools/run_sim_benchmark.sh
 
-# Qwen3 tensormap
 make CASE=qwen3_dynamic_tensormap.h run
-
-# Paged Attention tensormap
-make CASE=paged_attention_unroll.h run
-
-# Paged Attention manual scope
 make CASE=paged_attention_unroll_manual_scope.h run
+
+# ── 开启日志 ──
+make run WORKER_LOG=1                 # 运行时 worker CSV（编译期 WORKER_LOG=1）
+make CASE=qwen3_dynamic_tensormap.h MAIN_LOG=0 run          # 关闭主线程统计
+make CASE=qwen3_dynamic_tensormap.h MAIN_LOG=0 WORKER_LOG=1 run
+
+# ── 开启双缓冲 ──
+make DISPATCH=double_buffer run
+make clean && make CASE=paged_attention_unroll.h DISPATCH=double_buffer all && ./bin/esl_proxy
+
+# ── 设置 SPMD 参数（仅 qwen3 两个 case，编译期）──
+make CASE=qwen3_dynamic_manual_scope.h QWEN3_SPMD_TIER=0 run   # non-spmd（默认，3096 task）
+make CASE=qwen3_dynamic_tensormap.h QWEN3_SPMD_TIER=2 run        # spmd-4 tier（864 task）
+
+# ── 其他 ──
+make SIM_AICORE=threaded run          # 72 pthread + fake_kernel 时序 sim
+make CASE=paged_attention_unroll.h QWEN3_SPMD_TIER=0 run
 ```
 
-### Qwen3 SPMD 档位
+### Onboard
 
-仅 qwen3 两个 case 生效。`QWEN3_SPMD_TIER` 取值 0…4，**默认 2**（对应 V200-benchmark `--spmd-4`，目标宽度 m=4）：
-
-| `QWEN3_SPMD_TIER` | 等价 CLI | 目标宽度 m | 典型 task_cnt |
-|------------------:|----------|------------|--------------:|
-| 0 | `--non-spmd` | 1 | 3096 |
-| 1 | `--spmd-2` | 2 | 1602 |
-| 2（默认） | `--spmd-4` | 4 | 864 |
-| 3 | `--spmd-8` | 8 | 678 |
-| 4 | `--all-spmd` | total_chunks | 522 |
-
-各档 kernel 下发次数（batch=90 → batch_padded=96，Scope1/3 各 6 个 tile、Scope2 逐 batch；不含 alloc 等框架开销 task）：
-
-| 档位 | Scope1 | Scope2 | Scope3 | 合计下发次数 |
-|------|-------:|-------:|-------:|------------:|
-| `--non-spmd` | 228 | 1530 | 1338 | **3096** |
-| `--spmd-2` | 120 | 810 | 672 | **1602** |
-| `--spmd-4` | 66 | 450 | 348 | **864** |
-| `--spmd-8` | 42 | 450 | 186 | **678** |
-| `--all-spmd` | 30 | 450 | 42 | **522** |
-
-注：Scope2 在 `--spmd-4` 及以上不再变化（注意力四算子已封顶为 4，rope 为单任务）。合计下发次数即编排输出的 `task_cnt`。
+仓库根目录：
 
 ```bash
-# 使用默认 tier=2，无需显式指定
-make CASE=qwen3_dynamic_tensormap.h run
+# 指定单个 case
+bash tools/run_onboard.sh --case qwen3_dynamic_manual_scope.h
+bash tools/run_onboard.sh --case paged_attention_unroll.h --swimlane
 
-# 显式指定档位
-make CASE=qwen3_dynamic_tensormap.h QWEN3_SPMD_TIER=4 run
-make CASE=qwen3_dynamic_manual_scope.h QWEN3_SPMD_TIER=0 run
+# 全部四个 case（含泳道图 → report/swimlane/basic/ 或 double_buffer/）
+bash tools/run_onboard.sh --all-cases --swimlane
+bash tools/run_onboard.sh --all-cases --swimlane --double-buffer
+bash tools/run_onboard.sh --all-cases --swimlane --npu
+bash tools/run_onboard.sh --all-cases --swimlane --double-buffer --npu
+
+# 环境变量等价于 --case
+ESL_PROXY_ORCH_CASE=qwen3_dynamic_tensormap.h bash tools/run_onboard.sh --swimlane
 ```
 
-各档 `subtask_cnt` 均为 **3096**（物理子任务总数不变；SPMD 只改变 task 下发次数）。paged 两个 case 无 SPMD 档位参数，典型 `task_cnt` / `subtask_cnt` 均为 **1920**。
+Qwen3 SPMD 档位：`QWEN3_SPMD_TIER=0..4`（默认 0）。详见 [doc/overview.md#qwen3-spmd](doc/overview.md#qwen3-spmd)。
 
-### 其他 Make 目标与选项
+## 测试报告
 
-```bash
-make clean                                    # 清理 build/、bin/
-make CASE=<case.h> all                        # 只编译不运行
-make test-dep-dump                            # 依赖边 dump 单元测试
-
-# 运行时选项
-make CASE=qwen3_dynamic_tensormap.h DEP_DUMP=1 run   # 编排后导出依赖边
-make CASE=qwen3_dynamic_tensormap.h NO_DEPS=1 run    # 无依赖编排基准
-make CASE=paged_attention_unroll.h WORKER_LOG=1 run  # 开启 worker 日志
-make CASE=qwen3_dynamic_tensormap.h MAIN_LOG=0 run # 关闭主线程编排统计输出
-```
-
-**`MAIN_LOG`**：编译期开关，控制 `main` 线程的 `MAIN_LOGF` 是否输出到终端。`conf.h` 默认为 `1`，因此直接 `make run` 会打印编排统计（`task_cnt`、`subtask_cnt`、耗时、吞吐等）。设为 `0` 可静默运行；显式写 `MAIN_LOG=1` 与默认行为相同。
-
-产物路径：`bin/esl_proxy`。
-
-## 性能出口
-### 基础性能
-
-### 业务性能
-
-## 测试平台
+- Sim 基准（10 次中位数）：`bash tools/run_sim_benchmark.sh` → `report/sim_benchmark.json`
+- 上板泳道图：`report/swimlane/basic/` 与 `report/swimlane/double_buffer/`
+- 汇总报告：[report/benchmark_report.md](report/benchmark_report.md)

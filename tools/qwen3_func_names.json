@@ -1,0 +1,19 @@
+{
+  "0": "rmsnorm",
+  "1": "q_proj",
+  "2": "k_proj",
+  "3": "v_proj",
+  "4": "qk_norm",
+  "5": "rope_kv_cache",
+  "6": "qk_matmul",
+  "7": "softmax",
+  "8": "sv_matmul",
+  "9": "online_softmax",
+  "10": "out_proj",
+  "11": "post_rmsnorm",
+  "12": "gate_proj",
+  "13": "up_proj",
+  "14": "silu",
+  "15": "down_proj",
+  "16": "down_proj_residual"
+}

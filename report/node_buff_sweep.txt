@@ -1,0 +1,28 @@
+# NODE_BUFF_SIZE sweep — qwen3 (QWEN3_SPMD_TIER=0)
+# Date: 2026-06-29
+
+| NODE_BUFF_SIZE | sim manual_scope | sim tensormap | onboard manual_scope | onboard tensormap |
+|---------------:|:----------------:|:-------------:|:--------------------:|:-----------------:|
+| 8192           | FAIL (SEGV)      | PASS          | FAIL (507018)        | FAIL (507018)     |
+| 16384          | PASS             | PASS          | FAIL (507018)        | FAIL (507018)     |
+| 32768          | PASS             | PASS          | PASS (3096 tasks)    | PASS (3096 tasks) |
+| 65536          | PASS             | PASS          | PASS (3096 tasks)    | PASS (3096 tasks) |
+
+## 结论
+
+- **Sim**：manual_scope 最小 **16384**；tensormap 在 **8192** 即可通过（manual_scope 8192 SEGV）。
+- **上板**：两个 qwen3 case 均需 **≥32768**；8192/16384 均报 `507018`（AICPU sync 失败，task_cnt=0）。
+- 当前 conf.h 保持 **65536**（sim + onboard 均安全）。
+
+## 复现
+
+```bash
+# 改 esl_proxy/include/algorithm/conf.h 中 NODE_BUFF_SIZE 后：
+
+# Sim
+cd esl_proxy && make clean && make CASE=qwen3_dynamic_manual_scope.h QWEN3_SPMD_TIER=0 && ./bin/esl_proxy
+
+# 上板（须 ORCH_CASE 与 --case 一致）
+ORCH_CASE=qwen3_dynamic_manual_scope.h ESL_PROXY_ORCH_CASE=qwen3_dynamic_manual_scope.h \
+  bash tools/run_onboard.sh --case qwen3_dynamic_manual_scope.h --npu
+```
