@@ -187,12 +187,8 @@ static inline int send_task(ctrl_t *ctrl, int type)
         // Set executor's tasks and duration
         int core = (int)idx;
 
-        const uint16_t task_slot = (uint16_t)(task_id & RING_MASK);
-        cache_civac_lines(&g_basic_buf[task_slot], sizeof(g_basic_buf[task_slot]));
-        cache_civac_lines(&g_predecessors[task_id], sizeof(g_predecessors[task_id]));
-        cache_civac_lines(&g_predecessor_cnt[task_slot], sizeof(g_predecessor_cnt[task_slot]));
-        cache_civac_barrier();
-
+        /* No cache_civac: g_basic_buf is AICPU-only + the cluster is coherent;
+         * dequeuing task_id from ready_queue (acquire) already orders the write. */
         g_executors[exe_type][core].tasks[slot] = task_id;
         // Scale down duration for faster simulation (divide by 10000 to handle large durations)
         uint32_t raw_duration = g_basic_buf[task_id & RING_MASK].duration;

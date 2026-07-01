@@ -57,7 +57,7 @@ static void build_payload(EslDispatchPayload *out, const struct task_desc *desc,
     out->local_block_idx = (int32_t)block_idx;
     out->local_block_num = (int32_t)desc->count;
     out->global_sub_block_id = 0;                 /* args[49] 暴露其地址，保持确定值 */
-    out->async_task_token = (uint64_t)desc->id;   /* 编排 task_id，供 L2 swimlane 标识真实 kernel */
+    out->async_task_token = (uint64_t)desc->id;   /* 编排 task_id;kernel 身份由 <case>.taskmap.json 离线映射 */
     out->args[48] = (uint64_t)(uintptr_t)&out->local_block_idx;
     out->args[49] = (uint64_t)(uintptr_t)&out->global_sub_block_id;
     out->not_ready = 0U;

@@ -101,19 +101,44 @@ def _load_func_names(path: Path | None, esl_root: Path) -> dict[str, str]:
     return {}
 
 
-def _resolve_func_ids(tasks: list, func_names: dict[str, str]) -> None:
-    """Fill func_id when host export leaves it at -1 (onboard has no deps.json)."""
-    if not func_names:
-        return
-    mod_n = max(int(k) for k in func_names) + 1 if func_names else 0
-    if mod_n <= 0:
+def _load_task_func_map(esl_root: Path, case: str | None, spmd_tier: int = 0) -> dict[str, int]:
+    """Load the fixed task_id -> func_id map for `case` from
+    tools/case_task_func_maps.json (one merged file, keyed by case name).
+
+    qwen3_* entries are keyed by SPMD tier (values are per-tier dicts) because the
+    tier changes per-kernel task counts; paged_* entries are a flat task_id->func_id
+    dict. Regenerate the JSON with tools/gen_case_task_func_maps.py.
+    """
+    if not case:
+        return {}
+    p = esl_root / "tools" / "case_task_func_maps.json"
+    if not p.is_file():
+        return {}
+    with open(p) as f:
+        allmaps = json.load(f)
+    key = case[:-2] if case.endswith(".h") else case
+    entry = allmaps.get(key) or allmaps.get(case) or {}
+    if not entry:
+        return {}
+    # per-tier (values are dicts) vs flat (values are ints)
+    if isinstance(next(iter(entry.values())), dict):
+        entry = entry.get(str(spmd_tier)) or entry.get("0") or {}
+    return {str(k): int(v) for k, v in entry.items()}
+
+
+def _resolve_func_ids(tasks: list, task_func_map: dict[str, int]) -> None:
+    """Assign each task's func_id from the per-case task_id->func_id map.
+
+    task_id is the orchestration id carried verbatim in the swimlane token
+    (task_token_raw = desc->id). Tasks absent from the map keep func_id=-1
+    (rendered as task(rXtY) by the converter).
+    """
+    if not task_func_map:
         return
     for task in tasks:
-        if int(task.get("func_id", -1)) >= 0:
-            continue
-        tid = int(task.get("task_id", 0))
-        fid = tid % mod_n
-        task["func_id"] = fid
+        tid = str(int(task.get("task_id", -1)))
+        if tid in task_func_map:
+            task["func_id"] = task_func_map[tid]
 
 
 def _filter_aicore_view_only(events: list) -> list:
@@ -194,13 +219,16 @@ def convert_to_perfetto(
     func_names_path: Path | None,
     all_views: bool,
     verbose: bool,
+    case: str | None = None,
+    spmd_tier: int = 0,
 ) -> int:
     esl_root = Path(__file__).resolve().parents[1]
     func_names = _load_func_names(func_names_path, esl_root)
+    task_func_map = _load_task_func_map(esl_root, case, spmd_tier)
 
     conv = _load_swimlane_converter()
     data = conv.read_perf_data(input_path)
-    _resolve_func_ids(data["tasks"], func_names)
+    _resolve_func_ids(data["tasks"], task_func_map)
     conv.generate_chrome_trace_json(
         data["tasks"],
         str(output_path),
@@ -274,6 +302,13 @@ def main() -> int:
         help="Case name used in the perf summary label (default: input file stem).",
     )
     parser.add_argument(
+        "--spmd-tier",
+        type=int,
+        default=0,
+        help="QWEN3_SPMD_TIER (0..4) the run was built with; selects the qwen3 "
+             "task_id->func_id map (ignored for non-SPMD cases).",
+    )
+    parser.add_argument(
         "--no-summary",
         action="store_true",
         help="Skip printing the perf summary (only meaningful without --summary-only).",
@@ -297,7 +332,8 @@ def main() -> int:
 
     try:
         rc = convert_to_perfetto(
-            input_path, output_path, func_names_path, args.all_views, args.verbose
+            input_path, output_path, func_names_path, args.all_views, args.verbose,
+            args.case, args.spmd_tier
         )
     except Exception as exc:
         print(f"Error: conversion failed: {exc}", file=sys.stderr)

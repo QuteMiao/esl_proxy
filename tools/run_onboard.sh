@@ -76,7 +76,7 @@ if [[ "$_npu" == "1" ]]; then
   fi
   _ascend_env="${ASCEND_HOME_PATH:-/usr/local/Ascend/cann-9.0.0}/bin/setenv.bash"
   exec task-submit --device auto --max-time 0 --timeout 3600 \
-    --env ASCEND_HOME_PATH --env PATH --env LD_LIBRARY_PATH --env HOME --env USER \
+    --env ASCEND_HOME_PATH --env PATH --env LD_LIBRARY_PATH --env HOME --env USER --env ESL_PROXY_ORCH_CASE \
     --run "source '${_ascend_env}' && cd '${ROOT}' && bash tools/run_onboard.sh ${_npu_args[*]}"
 fi
 
@@ -288,7 +288,8 @@ run_one_case() {
             trace_out="${ROOT}/l2_swimlane_trace.json"
         fi
 
-        local perfetto_args=("${ROOT}/tools/swimlane_trace.py" "$raw" -o "$trace_out" --case "$name")
+        local perfetto_args=("${ROOT}/tools/swimlane_trace.py" "$raw" -o "$trace_out" \
+            --case "$name" --spmd-tier "${QWEN3_SPMD_TIER:-0}")
         local fn_json
         fn_json="$(resolve_func_names_json "$case")"
         if [[ -n "$fn_json" ]]; then

@@ -58,13 +58,12 @@ void add_successors(uint16_t ready_cnt[], uint16_t rq_buf[][LOCAL_BUFFER_SIZE]) 
     end = tmp > end ? end : tmp;
     while (commit < end) {
         uint16_t task_idx = commit;
-        const uint16_t slot = (uint16_t)(task_idx & RING_MASK);
 
-        cache_civac_lines(&g_basic_buf[slot], sizeof(g_basic_buf[slot]));
-        cache_civac_lines(&g_predecessors[task_idx], sizeof(g_predecessors[task_idx]));
-        cache_civac_lines(&g_predecessor_cnt[slot], sizeof(g_predecessor_cnt[slot]));
-        cache_civac_barrier();
-
+        /* No cache_civac here: g_basic_buf/g_predecessors/g_predecessor_cnt are
+         * AICPU-only (AICore never reads them) and the AICPU cluster is cache-
+         * coherent (the atomic-only ready/completed queues prove it). The
+         * acquire on g_task_id/g_commit_task_id already orders orchestration's
+         * writes before these reads, so the per-task dc-civac was pure overhead. */
         struct predecessor_list *ptr = &g_predecessors[task_idx];
         if (ptr->cnt <= 0) {
             task_type_t type = g_basic_buf[task_idx & RING_MASK].type;

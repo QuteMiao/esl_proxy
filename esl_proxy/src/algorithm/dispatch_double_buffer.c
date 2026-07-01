@@ -261,12 +261,8 @@ static inline int send_task(ctrl_t *ctrl, int type)
         // Set executor's tasks and duration
         int core = (int)idx;
 
-        const uint16_t task_slot = (uint16_t)(task_id & RING_MASK);
-        cache_civac_lines(&g_basic_buf[task_slot], sizeof(g_basic_buf[task_slot]));
-        cache_civac_lines(&g_predecessors[task_id], sizeof(g_predecessors[task_id]));
-        cache_civac_lines(&g_predecessor_cnt[task_slot], sizeof(g_predecessor_cnt[task_slot]));
-        cache_civac_barrier();
-
+        /* No cache_civac: g_basic_buf is AICPU-only + the cluster is coherent
+         * (atomic-only ready/completed queues prove it); ready_queue acquire orders it. */
         g_executors[exe_type][core].tasks[slot] = task_id;
         g_executors[exe_type][core].duration[slot] = g_basic_buf[task_id & RING_MASK].duration;
         g_executors[exe_type][core].idx = slot;  // Point to the slot with the new task
@@ -359,14 +355,8 @@ static int dispatch_prefetch(ctrl_t *ctrl, int type)
             break; /* 无就绪任务 — 停止 */
         }
         {
-            const uint16_t task_slot = (uint16_t)(one & RING_MASK);
-            /* 批量失效:dc civac 连发 + 一个 dsb sy/isb（替代 3 个屏障） */
-            cache_civac_lines(&g_basic_buf[task_slot], sizeof(g_basic_buf[task_slot]));
-            if (one < RING_SIZE) {
-                cache_civac_lines(&g_predecessors[one], sizeof(g_predecessors[one]));
-            }
-            cache_civac_lines(&g_predecessor_cnt[task_slot], sizeof(g_predecessor_cnt[task_slot]));
-            cache_civac_barrier();
+            /* No cache_civac: AICPU-only metadata on a coherent cluster; the
+             * ready_queue dequeue (acquire) already orders orchestration's writes. */
             g_executors[exe_type][core].idx = (uint8_t)free_slot;
             if (free_slot == 1) {
                 ctrl->task_id_map2[type][core] = one;

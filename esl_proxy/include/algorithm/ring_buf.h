@@ -37,6 +37,7 @@ extern struct ring_buf g_predecessor_ring;
 extern uint16_t predecessor_storage[NODE_BUFF_SIZE];
 extern struct node_list g_successor_buf[RING_SIZE];
 extern struct node_list g_successor_exp_buf[HALF_RING_SIZE];
+extern task_state g_state_buf[RING_SIZE];
 extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
 extern int g_subtask_cnt;
@@ -109,6 +110,14 @@ static int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t n, uin
     {
         if (target[i] < min_uncomplete_task)
             continue;
+        /* If the predecessor has already completed by the time this edge is
+         * declared, the dependency is already satisfied — don't record it. This
+         * shrinks the predecessor list (less cutter work + ring storage) and is
+         * safe: g_state_buf[].state is a monotonic COMPLETED flag on the coherent
+         * AICPU, so a COMPLETED read is always true; a stale not-completed read
+         * just records the edge and the cutter (add_successors) re-checks state. */
+        if (g_state_buf[target[i]].state == TASK_STATUS_COMPLETED)
+            continue;
         WORKER_LOGF("succeed,task_id,%u,predecessor_id,%u,idx,%d", task_id, target[i], cnt);
         uint16_t* idx = atomic_load_explicit(&g_predecessor_ring.tail, memory_order_relaxed);
         atomic_store_explicit(&g_predecessor_ring.tail, idx + 1, memory_order_relaxed);
@@ -139,7 +148,8 @@ static inline bool new_task(uint32_t task_id, uint16_t type, uint16_t count, uin
     g_basic_buf[task_id & RING_MASK].tensor_cnt = 0;
     g_basic_buf[task_id & RING_MASK].scalar_cnt = 0;
     g_subtask_cnt += count;
-    WORKER_LOGF("new,task_id,%u,type,%d,subtask_cnt,%d", task_id, type, count);
+    WORKER_LOGF("new,task_id,%u,type,%d,subtask_cnt,%d,dur,%u", task_id, type, count,
+                (unsigned)(uint16_t)duration_ns);
     return true;
 }
 
