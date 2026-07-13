@@ -1,3 +1,14 @@
+#if ESL_PROXY_ONBOARD_HOST
+
+extern int esl_onboard_run(int argc, char **argv);
+
+int main(int argc, char **argv)
+{
+    return esl_onboard_run(argc, argv);
+}
+
+#else /* !ESL_PROXY_ONBOARD_HOST */
+
 #define _POSIX_C_SOURCE 199309L
 
 #include <pthread.h>
@@ -11,7 +22,7 @@
 #include "conf.h"
 #include "cutter.h"
 #include "dispatch.h"
-#include "executor.h"
+#include "platform.h"
 #include "log.h"
 #include "manager.h"
 #include "mem_pool.h"
@@ -31,16 +42,16 @@ void aicpu_orchestration_entry(const uint64_t orch_args);
 #define MEM_POOL_BYTES (1024UL * 1024UL * 1024UL)
 #define WHEN2FREE_CAP 4096
 
+static EslRuntime g_sim_runtime;
 static uint8_t g_mem_pool_storage[MEM_POOL_BYTES];
 static when2free_entry_t g_when2free_entries[WHEN2FREE_CAP];
 
 extern atomic_bool g_orch_is_done;
+extern atomic_int g_completed_cnt;
 
 int main(void) {
     pthread_t dispatch_threads[DISPATCH_THREAD_CNT];
     pthread_t cutter_threads[CUTTER_THREAD_CNT];
-    pthread_t executor_threads[EXECUTOR_THREAD_CNT];
-
 #if ORCHESTRATION_TIME
     uint64_t total_start_ns = get_time_ns();
 #endif
@@ -55,17 +66,12 @@ int main(void) {
 
     mem_pool_init(&g_mem_pool, g_mem_pool_storage, sizeof g_mem_pool_storage);
     mem_pool_init_fifo(&g_mem_pool, g_when2free_entries, WHEN2FREE_CAP);
-    ring_buf_init();
-    init_predecessors();
-    init_ctrl_t();
-    
-    // executor_init();
 
-    // pthread_create(&manager_thread, NULL, manager_worker, &g_mem_pool);
+    if (esl_platform_init(&g_sim_runtime) != 0) {
+        MAIN_LOGF("[host] esl_platform_init failed");
+        return 1;
+    }
 
-    // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
-    //     pthread_create(&executor_threads[i], NULL, executor_worker, (void *)(intptr_t)i);
-    // }
     for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
         pthread_create(&cutter_threads[i], NULL, cutter_worker,
                        (void *)(intptr_t)i);
@@ -91,16 +97,20 @@ int main(void) {
 #endif
     atomic_store(&g_orch_is_done, true);
 
-    // for (int i = 0; i < EXECUTOR_THREAD_CNT; i++) {
-    //     pthread_join(executor_threads[i], NULL);
-    // }
     for (int i = 0; i < CUTTER_THREAD_CNT; i++) {
         pthread_join(cutter_threads[i], NULL);
     }
     for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
         pthread_join(dispatch_threads[i], NULL);
     }
-    // pthread_join(manager_thread, NULL);
+    esl_platform_shutdown(&g_sim_runtime);
+
+    if (g_completed_cnt != (int)g_task_id) {
+        MAIN_LOGF("[host] FAIL: completed_cnt=%d task_id=%u",
+                  g_completed_cnt, (unsigned)g_task_id);
+        return 1;
+    }
+    MAIN_LOGF("[host] PASS: task_cnt=%u subtask_cnt=%d", (unsigned)g_task_id, g_subtask_cnt);
 
 #if WORKER_LOG
     log_close();
@@ -108,3 +118,4 @@ int main(void) {
 
     return 0;
 }
+#endif /* ESL_PROXY_ONBOARD_HOST */

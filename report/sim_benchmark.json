@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-06-29T11:26:52.767033+00:00",
+  "mode": "sim",
+  "sim_aicore": "instant",
+  "dispatch": "basic",
+  "qwen3_spmd_tier": 0,
+  "runs_per_case": 10,
+  "cases": {
+    "qwen3_dynamic_manual_scope.h": {
+      "task_cnt": 3096.0,
+      "subtask_cnt": 3096.0,
+      "orch_elapsed_ns": 953409.0,
+      "orch_task_tp": 3.2476805,
+      "sched_duration_ns": 1257382.0,
+      "sched_task_tp": 2.4761420000000003,
+      "wall_ms": 5.615819507511333,
+      "pass": 10
+    },
+    "qwen3_dynamic_tensormap.h": {
+      "task_cnt": 3096.0,
+      "subtask_cnt": 3096.0,
+      "orch_elapsed_ns": 1993864.5,
+      "orch_task_tp": 1.553277,
+      "sched_duration_ns": 2124005.5,
+      "sched_task_tp": 1.4679419999999999,
+      "wall_ms": 5.869556494872086,
+      "pass": 10
+    },
+    "paged_attention_unroll.h": {
+      "task_cnt": 1920.0,
+      "subtask_cnt": 1920.0,
+      "orch_elapsed_ns": 826738.0,
+      "orch_task_tp": 2.3224134999999997,
+      "sched_duration_ns": 854478.5,
+      "sched_task_tp": 2.247051,
+      "wall_ms": 3.338281996548176,
+      "pass": 10
+    },
+    "paged_attention_unroll_manual_scope.h": {
+      "task_cnt": 1920.0,
+      "subtask_cnt": 1920.0,
+      "orch_elapsed_ns": 512690.0,
+      "orch_task_tp": 3.745081,
+      "sched_duration_ns": 531530.0,
+      "sched_task_tp": 3.612337,
+      "wall_ms": 3.392772501683794,
+      "pass": 10
+    }
+  }
+}

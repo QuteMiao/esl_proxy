@@ -1,0 +1,6 @@
+build/
+*.o
+*.so
+*.a
+l2_swimlane_*.json
+!report/swimlane/**/l2_swimlane_trace.json

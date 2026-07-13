@@ -158,14 +158,23 @@ def render_dot(dot_path, output_path, format='svg'):
         return False
 
 def main():
-    log_files = [
-        'esl_proxy/log/pto._thread_0.csv',
-        'esl_proxy/log/pto._thread_1.csv',
-    ]
+    import sys
+    import os
+
+    if len(sys.argv) > 1:
+        log_files = [sys.argv[1]]
+    else:
+        log_files = [
+            'esl_proxy/log/pto._thread_0.csv',
+            'esl_proxy/log/pto._thread_1.csv',
+        ]
+
+    out_dir = sys.argv[3] if len(sys.argv) > 3 and sys.argv[2] == '-o' else os.path.dirname(log_files[0]) or '.'
 
     for log_file in log_files:
-        dot_file = log_file.replace('.csv', '.dot')
-        svg_file = log_file.replace('.csv', '.svg')
+        base = os.path.basename(log_file)
+        dot_file = os.path.join(out_dir, base.replace('.csv', '.dot'))
+        svg_file = os.path.join(out_dir, base.replace('.csv', '.svg'))
 
         print(f"Parsing: {log_file}")
         edges, task_types = parse_csv(log_file)
@@ -175,8 +184,8 @@ def main():
 
         if not edges:
             print("No dependency edges found in CSV")
-            return
-        
+            continue
+
         # Generate DOT file
         generate_dot(task_types, edges, dot_file)
         render_dot(dot_file, svg_file, 'svg')
