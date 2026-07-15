@@ -18,7 +18,6 @@
 #include "task.h"
 #include "queue.h"
 
-
 typedef struct ctrl {
     // 64CORES
     uint64_t free_bitmap[TASK_TYPE_CNT][AIC_OSTD];
@@ -35,5 +34,12 @@ typedef struct ctrl {
 
 void *dispatch_worker(void *arg);
 void init_ctrl_t(void);
+
+#if defined(ESL_PROXY_ONBOARD) || defined(ESL_PROXY_ONBOARD_HOST)
+#include "runtime.h"
+extern EslRuntime *g_runtime;
+/* 把硬件 AICore 完成事件拉到 msg_bitmap。 */
+void dispatch_poll(int tid);
+#endif
 
 #endif /* ALGORITHM_DISPATCH_H */

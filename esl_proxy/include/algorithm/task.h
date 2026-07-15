@@ -11,13 +11,14 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include "conf.h"
+#include "tensor.h"
 
 typedef uint16_t task_id_t;
 
 typedef enum {
     TASK_TYPE_CUBE   = 0,
     TASK_TYPE_VECTOR = 1,
-    TASK_TYPE_MIX    = 1,
+    TASK_TYPE_MIX    = 2,
     TASK_TYPE_CNT    = 3,
 } task_type_t;
 
@@ -61,7 +62,8 @@ struct task_desc {
     int64_t        scalar[32];  /* scalar kernel arguments */
     uint16_t       tensor_cnt;  /* number of valid data[] entries */
     uint16_t       scalar_cnt;  /* number of valid scalar[] entries */
-    uint16_t       duration;    /* estimated kernel cycles (low 16 bits) */
+    uint32_t       duration;    /* estimated kernel duration (ns) */
+    uint32_t       jitter_mask; /* jitter mask for fake_kernel_run */
 };
 
 struct predecessor_list {

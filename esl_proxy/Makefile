@@ -19,6 +19,8 @@
 #   make clean
 #
 # CASE selects which cases/*.h orchestration header main.c compiles in.
+#
+# CPU Fake Return source list is inline below; onboard AICPU kernel list: ../cmake/sources.cmake
 
 ALL_CASES := \
 	qwen3_dynamic_manual_scope.h \
