@@ -36,8 +36,9 @@ QWEN3_CASES := qwen3_dynamic_manual_scope.h qwen3_dynamic_tensormap.h
 
 CC       := cc
 # -MMD -MP emits a .d alongside each .o listing the headers it included, so a
-# change to any include/*.h (e.g. tensormap.h) rebuilds the dependent objects.
-CFLAGS   := -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L -I include -I cases -DORCH_CASE=$(CASE) -MMD -MP -Wno-error=implicit-function-declaration
+# change to any include/algorithm/*.h (e.g. tensormap.h) rebuilds the dependent objects.
+CFLAGS   := -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L \
+	-I include/algorithm -I cases -DORCH_CASE=$(CASE) -MMD -MP -Wno-error=implicit-function-declaration
 
 # -latomic is needed on Linux but not on macOS (clang)
 UNAME_S  := $(shell uname -s)
@@ -68,14 +69,14 @@ TARGET  := $(BIN_DIR)/esl_proxy
 
 SRCS := \
 	src/main.c \
-	src/executor.c \
-	src/dispatch.c \
-	src/cutter.c \
-	src/manager.c \
-	src/log.c \
-	src/shm.c
+	src/algorithm/executor.c \
+	src/algorithm/dispatch.c \
+	src/algorithm/cutter.c \
+	src/algorithm/manager.c \
+	src/algorithm/log.c \
+	src/algorithm/shm.c
 
-OBJS := $(SRCS:src/%.c=$(OBJ_DIR)/%.o)
+OBJS := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
 # Rebuild orchestration when case or orch-related flags change.
@@ -90,6 +91,7 @@ $(TARGET): $(OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
 
 $(OBJ_DIR)/%.o: src/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Rebuild main.o whenever orchestration config changes.
@@ -107,7 +109,7 @@ run: all
 test-tensormap: $(BIN_DIR)/test_tensormap
 	$(BIN_DIR)/test_tensormap
 
-TEST_TENSORMAP_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -O2 -D_POSIX_C_SOURCE=200809L -I include
+TEST_TENSORMAP_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic -O2 -D_POSIX_C_SOURCE=200809L -I include/algorithm
 
 $(BIN_DIR)/test_tensormap: tests/test_tensormap.c | $(BIN_DIR)
 	$(CC) $(TEST_TENSORMAP_CFLAGS) tests/test_tensormap.c -o $@ $(LDFLAGS)
