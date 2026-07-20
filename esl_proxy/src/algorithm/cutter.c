@@ -49,9 +49,9 @@ static inline bool update_task_state(uint16_t cnt, uint16_t* cq_buf)
         g_min_uncomplete_task, end, g_ctrl_t[0].ready_queue[2].cnt, g_ctrl_t[0].ready_queue[1].cnt);
 }
 
-void add_successors(uint16_t ready_cnt[], uint16_t rq_buf[][LOCAL_BUFFER_SIZE]) {
+void add_successors(uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SIZE]) {
     uint16_t end = atomic_load(&g_task_id);
-    uint16_t tmp = g_commit_task_id + ADD_BATCH_SIZE;
+    uint16_t tmp = g_commit_task_id + PRE_BATCH_SIZE;
     end = tmp > end ? end : tmp;
     while ( g_commit_task_id <= end)
     {
@@ -93,7 +93,7 @@ void add_successors(uint16_t ready_cnt[], uint16_t rq_buf[][LOCAL_BUFFER_SIZE]) 
     }
 }
 
-void send_2_ready_queue(uint16_t ready_cnt[], uint16_t rq_buf[][LOCAL_BUFFER_SIZE]) {
+void send_2_ready_queue(uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SIZE]) {
     for (uint16_t j = 0; j < 2; j++) {
         int target_ctrl = 0;
         queue_t *rq = &g_ctrl_t[target_ctrl].ready_queue[j];
@@ -105,7 +105,7 @@ void send_2_ready_queue(uint16_t ready_cnt[], uint16_t rq_buf[][LOCAL_BUFFER_SIZ
     }
 }
 
-void resolve_dep(uint16_t cnt, uint16_t* cq_buf, uint16_t rq_buf[][LOCAL_BUFFER_SIZE], uint16_t* ready_cnt) {
+void resolve_dep(uint16_t cnt, uint16_t* cq_buf, uint16_t rq_buf[][RQ_BATCH_SIZE], uint16_t* ready_cnt) {
     uint16_t task_id;
     uint16_t succ_id;
     uint16_t idx;
@@ -132,11 +132,11 @@ void resolve_dep(uint16_t cnt, uint16_t* cq_buf, uint16_t rq_buf[][LOCAL_BUFFER_
 
 void deal_completed_queue() {
     for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-        uint16_t cq_buf[CUTTER_BATCH_SIZE];
-        uint16_t rq_buf[2][LOCAL_BUFFER_SIZE];
+        uint16_t cq_buf[CQ_BATCH_SIZE];
+        uint16_t rq_buf[2][RQ_BATCH_SIZE];
         uint16_t ready_cnt[2] = {0, 0};
         queue_t *cq = &g_ctrl_t[i].completed_queue;
-        uint16_t cnt = CUTTER_BATCH_SIZE;
+        uint16_t cnt = CQ_BATCH_SIZE;
         batch_dequeue(cq, cq_buf, &cnt);
         g_completed_task_cnt += cnt;
         // for (size_t i = 0; i < cnt; i++)

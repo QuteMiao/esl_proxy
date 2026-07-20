@@ -8,15 +8,15 @@
  * C11 standard with _Atomic for lock-free concurrency.
  */
 
-#ifndef ALGORITHM_DISPATCH_H
-#define ALGORITHM_DISPATCH_H
+#ifndef SCHEDULER_DISPATCH_H
+#define SCHEDULER_DISPATCH_H
 
 #include <stdint.h>
 #include <stddef.h>
 
-#include "conf.h"
+#include "scheduler/conf.h"
 #include "task.h"
-#include "queue.h"
+#include "common/queue.h"
 
 
 typedef struct ctrl {
@@ -36,4 +36,4 @@ typedef struct ctrl {
 void *dispatch_worker(void *arg);
 void init_ctrl_t(void);
 
-#endif /* ALGORITHM_DISPATCH_H */
+#endif /* SCHEDULER_DISPATCH_H */

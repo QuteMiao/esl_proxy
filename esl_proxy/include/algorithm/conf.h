@@ -1,5 +1,5 @@
-#ifndef CONF_H
-#define CONF_H
+#ifndef ALGORITHM_CONF_H
+#define ALGORITHM_CONF_H
 
 #define RING_SIZE 4096
 #define RING_MASK (RING_SIZE - 1)
@@ -13,14 +13,13 @@
 #define AIC_CNT 60
 #define EXE_TYPE_CNT 2
 
-#define CUTTER_BATCH_SIZE 512
-#define ADD_BATCH_SIZE 240
-#define LOCAL_BUFFER_SIZE 512
+#define CQ_BATCH_SIZE 512
+#define PRE_BATCH_SIZE 240
+#define RQ_BATCH_SIZE 512
 #define DISPATCH_COMPLETE_BATCH 512
 
 #define CUTTER_THREAD_CNT 1
 #define DISPATCH_THREAD_CNT 1
-#define EXECUTOR_THREAD_CNT 1
 
 /* 1: compile in worker logs; toggle at runtime via g_worker_log or WORKER_LOG env */
 #define WORKER_LOG 1
@@ -46,4 +45,4 @@
 #define NO_DEPS 0
 #endif
 
-#endif /* CONF_H */
+#endif /* ALGORITHM_CONF_H */
