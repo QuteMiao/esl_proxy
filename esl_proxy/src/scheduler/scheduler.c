@@ -16,15 +16,16 @@ cc -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L -I esl_prox
 #endif
 
 #include "scheduler/conf.h"
-// #include "scheduler/painter.h"
+#include "scheduler/painter.h"
 #include "scheduler/dispatch.h"
 
-/* Global variable definitions needed by dispatch.c */
+/* Global variable definitions needed by dispatch.c and painter.c */
 atomic_int g_completed_cnt = 0;
 atomic_bool g_is_done = false;
 atomic_bool g_orch_is_done = false;
 atomic_int g_task_id = 0;
-struct task_desc g_basic_buf[RING_SIZE];
+atomic_int g_min_uncomplete_task = 0;
+struct node_list g_successor_buf[RING_SIZE];
 ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
 int g_worker_log = 0;
@@ -56,7 +57,7 @@ int main(void) {
     printf("painter,%d,dispatcher,%d\n", PAINTER_THREAD_CNT, DISPATCH_THREAD_CNT);
     uint64_t start_ns = get_time_ns();
     for (int i = 0; i < PAINTER_THREAD_CNT; i++) {
-        pthread_create(&painter_threads[i], NULL, worker, (void *)(intptr_t)i);
+        pthread_create(&painter_threads[i], NULL, painter, (void *)(intptr_t)i);
 #ifdef __linux__
         cpu_set_t mask;
         CPU_ZERO(&mask);

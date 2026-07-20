@@ -3,8 +3,7 @@
 #include <string.h>
 
 #include "scheduler/painter.h"
-#include "log.h"
-#include "ring_buf.h"
+#include "algorithm/log.h"
 
 task_state* g_state_buf[PAINTER_THREAD_CNT];
 uint16_t commit_task_id[PAINTER_THREAD_CNT] = {0, 0};
@@ -61,10 +60,9 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
     {
         uint16_t id = test_graph[tid].task_id[commit_task_id[tid]];
         commit_task_id[tid]++;
-        int pre_cnt = test_graph[tid].pre_cnt;
-        struct predecessor_list *ptr = &test_graph->task_id[id];
+        int pre_cnt = test_graph[tid].pre_cnt[id];
         if (pre_cnt <= 0) {
-            task_type_t type = test_graph[tid].type[id];
+            task_type_t type = (task_type_t)test_graph[tid].type[id];
             rq_buf[type][ready_cnt[type]] = id;
             ready_cnt[type]++;
             WORKER_LOGF("ready_cnt[%d],%d,task_id,%d",type, ready_cnt[type], id);
@@ -74,7 +72,7 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
         uint16_t predecessor_cnt = 0;
         for (int i = 0; i < pre_cnt; i++)
         {
-            precessor_id = test_graph[tid].predecessors[test_graph[tid].pre_idx[id] + i];
+            precessor_id = (uint16_t)test_graph[tid].predecessors[test_graph[tid].pre_idx[id] + i];
             uint16_t precessor_idx = precessor_id;
             if(g_state_buf[tid][precessor_idx].state != TASK_STATUS_COMPLETED) {
                 uint16_t successor_idx = g_successor_buf[precessor_idx].cnt++;
@@ -83,14 +81,12 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
                 predecessor_cnt++;
                 WORKER_LOGF("add, task_id,%u, successor_cnt,%u, successor_id, %u", precessor_id, g_successor_buf[precessor_idx].cnt, commit_task_id[tid]);
             }
-            ptr->cnt--;
-            ptr->exp++;
         }
         g_predecessor_cnt[id] = predecessor_cnt;
         if (predecessor_cnt <= 0)
         {
-            task_type_t type = g_basic_buf[commit_task_id[tid]].type;
-            rq_buf[type][ready_cnt[type]] = commit_task_id[tid];
+            task_type_t type = test_graph[tid].type[id];
+            rq_buf[type][ready_cnt[type]] = id;
             ready_cnt[type]++;
             WORKER_LOGF("ready_cnt[%d],%d",type, ready_cnt[type]);
         }
@@ -120,13 +116,13 @@ void resolve_dep(int tid, uint16_t cnt, uint16_t* cq_buf, uint16_t rq_buf[][RQ_B
         idx = task_id & RING_MASK;
         task_state st = g_state_buf[tid][idx];
         succ_cnt = (uint16_t)st.successor_cnt;
-        WORKER_LOGF("completed,task_id,%u,type,%u, successor_cnt,%u", task_id, g_basic_buf[idx].type, succ_cnt);
+        WORKER_LOGF("completed,task_id,%u,type,%u, successor_cnt,%u", task_id, test_graph[tid].type[succ_id], succ_cnt);
         for (uint16_t k = 0; k < succ_cnt; k++) {
             succ_id = g_successor_buf[idx].node[k];
             g_predecessor_cnt[succ_id & RING_MASK]--;
             WORKER_LOGF("painter, task_id,%u, successor_id,%u, predecessor_cnt,%u", task_id, succ_id, g_predecessor_cnt[succ_id & RING_MASK]);
             if (g_predecessor_cnt[succ_id & RING_MASK] < 1) {
-                task_type_t type = g_basic_buf[succ_id].type;
+                task_type_t type = test_graph[tid].type[succ_id];
                 rq_buf[type][ready_cnt[type]] = succ_id;
                 ready_cnt[type]++;
                 WORKER_LOGF("ready_cnt[%d],%d",type, ready_cnt[type]);

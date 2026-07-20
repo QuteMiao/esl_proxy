@@ -1,0 +1,47 @@
+# Makefile for scheduler (scheduler.c, dispatch.c, painter.c)
+#
+# Usage:
+#   make -f Makefile_scheduler        # compile
+#   make -f Makefile_scheduler run    # compile and run
+
+CC       := cc
+CFLAGS   := -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L \
+            -I esl_proxy/include \
+            -I esl_proxy/include/algorithm \
+            -Wno-macro-redefined
+
+UNAME_S  := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+    LDFLAGS  := -lpthread -latomic
+else
+    LDFLAGS  := -lpthread
+endif
+
+BIN_DIR  := bin
+TARGET   := $(BIN_DIR)/scheduler_test
+
+SRCS := \
+    esl_proxy/src/scheduler/scheduler.c \
+    esl_proxy/src/scheduler/dispatch.c \
+    esl_proxy/src/scheduler/painter.c
+
+OBJS := $(patsubst esl_proxy/src/%.c,$(BIN_DIR)/%.o,$(SRCS))
+
+.PHONY: all run clean
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS) | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
+
+$(BIN_DIR)/scheduler/%.o: esl_proxy/src/scheduler/%.c | $(BIN_DIR)/scheduler
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BIN_DIR) $(BIN_DIR)/scheduler:
+	mkdir -p $@
+
+run: all
+	$(TARGET)
+
+clean:
+	rm -rf $(BIN_DIR)/scheduler $(TARGET)
