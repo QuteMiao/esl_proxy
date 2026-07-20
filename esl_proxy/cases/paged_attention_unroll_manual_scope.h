@@ -27,6 +27,10 @@ extern atomic_int g_task_id;
 #define DUR_SOFTMAX_PREP 58820
 #define DUR_PV_MATMUL 52610
 #define DUR_ONLINE_UPDATE 2560
+#define MASK_QK_MATMUL 8191
+#define MASK_SOFTMAX_PREP 8191
+#define MASK_PV_MATMUL 16383
+#define MASK_ONLINE_UPDATE 2047
 
 int g_subtask_cnt = 0;
 
@@ -44,7 +48,6 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
     uint16_t task_preds[2];
     for (uint64_t b_idx = 0; b_idx < 480; b_idx++) { // batch=480
         for (uint64_t q_idx = 0; q_idx < 1; q_idx++) { // q_loop=1
-            const uint64_t cur_offset = b_idx * 16 + q_idx * 16; // num_heads=16, q_tile=16
             uint16_t pre_task_id = 0;
             int has_pre = 0;
             for (uint64_t bn = 0; bn < 64; bn += 64) { // bn_this_batch=64, n_unroll=64
@@ -54,7 +57,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                 Tensor sij_buf = alloc_tensors((uint32_t[2]){16, 8192}, 2, FLOAT32); // q_tile=16, n_unroll*block_size=64*128
 
                 /* task 0: qk_matmul */
-                new_task(g_task_id, TASK_TYPE_CUBE, 1, DUR_QK_MATMUL);
+                new_task(g_task_id, TASK_TYPE_CUBE, 1, DUR_QK_MATMUL, MASK_QK_MATMUL);
                 add_input(g_task_id, ext_query);
                 add_input(g_task_id, ext_key_cache);
                 add_input(g_task_id, ext_block_table);
@@ -62,13 +65,13 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                 add_scalar(g_task_id, (int64_t)n_blocks);
                 add_scalar(g_task_id, (int64_t)(b_idx * 64 + bn)); // block_num=64
                 const uint16_t qk_id = g_task_id;
-                g_task_id++;
+                atomic_fetch_add(&g_task_id, 1);
+
+                /* task 1: softmax_prep */
+                new_task(g_task_id, TASK_TYPE_VECTOR, 1, DUR_SOFTMAX_PREP, MASK_SOFTMAX_PREP);
                 Tensor pij_buf = alloc_tensors((uint32_t[2]){16, 8192}, 2, BFLOAT16); // q_tile=16, n_unroll*block_size=64*128
                 Tensor mi = alloc_tensors((uint32_t[2]){1, 16}, 2, FLOAT32); // q_tile=16
                 Tensor li = alloc_tensors((uint32_t[2]){1, 16}, 2, FLOAT32); // q_tile=16
-
-                /* task 1: softmax_prep */
-                new_task(g_task_id, TASK_TYPE_VECTOR, 1, DUR_SOFTMAX_PREP);
                 add_input(g_task_id, sij_buf);
                 add_output(g_task_id, pij_buf);
                 add_output(g_task_id, mi);
@@ -79,11 +82,11 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                 task_preds[0] = qk_id;
                 add_predecessors(g_task_id, task_preds, 1, 0);
                 const uint16_t sf_id = g_task_id;
-                g_task_id++;
-                Tensor oi_new = alloc_tensors((uint32_t[2]){16, 128}, 2, FLOAT32); // q_tile=16, head_dim=128
+                atomic_fetch_add(&g_task_id, 1);
 
                 /* task 2: pv_matmul */
-                new_task(g_task_id, TASK_TYPE_CUBE, 1, DUR_PV_MATMUL);
+                new_task(g_task_id, TASK_TYPE_CUBE, 1, DUR_PV_MATMUL, MASK_PV_MATMUL);
+                Tensor oi_new = alloc_tensors((uint32_t[2]){16, 128}, 2, FLOAT32);
                 add_input(g_task_id, pij_buf);
                 add_input(g_task_id, ext_value_cache);
                 add_input(g_task_id, ext_block_table);
@@ -93,10 +96,10 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                 task_preds[0] = sf_id;
                 add_predecessors(g_task_id, task_preds, 1, 0);
                 const uint16_t pv_id = g_task_id;
-                g_task_id++;
+                atomic_fetch_add(&g_task_id, 1);
 
                 /* task 3: online_update */
-                new_task(g_task_id, TASK_TYPE_VECTOR, 1, DUR_ONLINE_UPDATE);
+                new_task(g_task_id, TASK_TYPE_VECTOR, 1, DUR_ONLINE_UPDATE, MASK_ONLINE_UPDATE);
                 add_input(g_task_id, mi);
                 add_input(g_task_id, li);
                 add_input(g_task_id, oi_new);
@@ -113,9 +116,8 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                     add_predecessors(g_task_id, task_preds, 1, 0);
                 }
                 pre_task_id = g_task_id;
-                g_task_id++;
+                atomic_fetch_add(&g_task_id, 1);
                 has_pre = 1;
-                (void)cur_offset;
             }
         }
     }

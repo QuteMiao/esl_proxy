@@ -1,3 +1,14 @@
+#if ESL_PROXY_ONBOARD_HOST
+
+extern int esl_onboard_run(int argc, char **argv);
+
+int main(int argc, char **argv)
+{
+    return esl_onboard_run(argc, argv);
+}
+
+#else /* !ESL_PROXY_ONBOARD_HOST */
+
 #define _POSIX_C_SOURCE 199309L
 
 #include <pthread.h>
@@ -108,3 +119,5 @@ int main(void) {
 
     return 0;
 }
+
+#endif /* !ESL_PROXY_ONBOARD_HOST */

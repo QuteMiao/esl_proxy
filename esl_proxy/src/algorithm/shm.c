@@ -57,7 +57,7 @@ void init_ctrl_t(void)
                 g_ctrl_t[tid].msg_bitmap[i][j] = 0x0;
             }
         }
-        
+
         // Initialize task_id_map
         for (int i = 0; i < EXE_TYPE_CNT; i++) {
             for (int j = 0; j < AIC_CNT; j++) {
@@ -65,7 +65,7 @@ void init_ctrl_t(void)
                 g_ctrl_t[tid].task_id_map2[i][j] = 0;
             }
         }
-        
+
         // Initialize queues
         for (int i = 0; i < TASK_TYPE_CNT; i++) {
             memset(&g_ctrl_t[tid].ready_queue[i], 0, sizeof(queue_t));

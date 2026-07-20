@@ -16,6 +16,7 @@
 #include <stdbool.h>
 
 #include "conf.h"
+#define EXEC_SLOT_EMPTY ((uint16_t)0xFFFF)
 
 /*
  * Executor
@@ -24,7 +25,7 @@ typedef struct executor {
     uint8_t idx;
     uint16_t tasks[AIC_OSTD];
     uint16_t block_idx[AIC_OSTD];
-    uint16_t duration[AIC_OSTD];
+    uint32_t duration[AIC_OSTD];
     uint64_t base[AIC_OSTD];
 } executor_t;
 

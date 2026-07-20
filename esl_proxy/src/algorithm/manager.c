@@ -1,5 +1,5 @@
 /*
- * mem_pool.c - Manager thread for automatic memory release
+ * manager.c - Manager thread for automatic memory release
  *
  * Dedicated manager thread that monitors Task State Ring Buffer
  * and processes when2free FIFO entries to release memory.

@@ -23,6 +23,15 @@
 #include "mem_pool.h"
 #include "tensormap.h"
 
+#define DUR_QK_MATMUL 51630
+#define DUR_SOFTMAX_PREP 58820
+#define DUR_PV_MATMUL 52610
+#define DUR_ONLINE_UPDATE 2560
+#define MASK_QK_MATMUL 8191
+#define MASK_SOFTMAX_PREP 8191
+#define MASK_PV_MATMUL 16383
+#define MASK_ONLINE_UPDATE 2047
+
 int g_subtask_cnt = 0;
 
 static inline void set_task_type(uint16_t task_id, task_type_t type) {
@@ -50,7 +59,7 @@ void aicpu_orchestration_entry(uint64_t orch_args) {
                 Tensor sij_buf = alloc_tensors((uint32_t[2]){16, 8192}, 2, FLOAT32); // q_tile=16, n_unroll*block_size=64*128
 
                 /* task 0: qk_matmul */
-                new_task(g_task_id, TASK_TYPE_CUBE, 1, 51630);
+                new_task(g_task_id, TASK_TYPE_CUBE, 1, DUR_QK_MATMUL, MASK_QK_MATMUL);
                 tm_in_ro(g_task_id, ext_query);
                 tm_in_ro(g_task_id, ext_key_cache);
                 tm_in_ro(g_task_id, ext_block_table);
@@ -58,13 +67,14 @@ void aicpu_orchestration_entry(uint64_t orch_args) {
                 add_scalar(g_task_id, (int64_t)n_blocks);
                 add_scalar(g_task_id, (int64_t)(b_idx * 64 + bn)); // max_blocks=64
                 tm_submit(g_task_id);
-        g_task_id++;
+                atomic_fetch_add(&g_task_id, 1);
+
                 Tensor pij_buf = alloc_tensors((uint32_t[2]){16, 8192}, 2, BFLOAT16); // q_tile=16, n_unroll*block_size=64*128
                 Tensor mi = alloc_tensors((uint32_t[2]){1, 16}, 2, FLOAT32); // q_tile=16
                 Tensor li = alloc_tensors((uint32_t[2]){1, 16}, 2, FLOAT32); // q_tile=16
 
                 /* task 1: softmax_prep */
-                new_task(g_task_id, TASK_TYPE_VECTOR, 1, 58820);
+                new_task(g_task_id, TASK_TYPE_VECTOR, 1, DUR_SOFTMAX_PREP, MASK_SOFTMAX_PREP);
                 tm_in(g_task_id, sij_buf);
                 tm_out(g_task_id, pij_buf);
                 tm_out(g_task_id, mi);
@@ -73,11 +83,11 @@ void aicpu_orchestration_entry(uint64_t orch_args) {
                 add_scalar(g_task_id, (int64_t)n_blocks);
                 add_scalar(g_task_id, (int64_t)128); // block_size=128
                 tm_submit(g_task_id);
-        g_task_id++;
-                Tensor oi_new = alloc_tensors((uint32_t[2]){16, 128}, 2, FLOAT32); // q_tile=16, block_size=128
+                atomic_fetch_add(&g_task_id, 1);
 
                 /* task 2: pv_matmul */
-                new_task(g_task_id, TASK_TYPE_CUBE, 1, 52610);
+                Tensor oi_new = alloc_tensors((uint32_t[2]){16, 128}, 2, FLOAT32); // q_tile=16, block_size=128
+                new_task(g_task_id, TASK_TYPE_CUBE, 1, DUR_PV_MATMUL, MASK_PV_MATMUL);
                 tm_in(g_task_id, pij_buf);
                 tm_in_ro(g_task_id, ext_value_cache);
                 tm_in_ro(g_task_id, ext_block_table);
@@ -85,10 +95,10 @@ void aicpu_orchestration_entry(uint64_t orch_args) {
                 add_scalar(g_task_id, (int64_t)n_blocks);
                 add_scalar(g_task_id, (int64_t)(b_idx * 64 + bn)); // max_blocks=64
                 tm_submit(g_task_id);
-        g_task_id++;
+                atomic_fetch_add(&g_task_id, 1);
 
                 /* task 3: online_update */
-                new_task(g_task_id, TASK_TYPE_VECTOR, 1, 2560);
+                new_task(g_task_id, TASK_TYPE_VECTOR, 1, DUR_ONLINE_UPDATE, MASK_ONLINE_UPDATE);
                 tm_in_ro(g_task_id, mi);
                 tm_in_ro(g_task_id, li);
                 tm_in(g_task_id, oi_new);
@@ -99,7 +109,7 @@ void aicpu_orchestration_entry(uint64_t orch_args) {
                 add_scalar(g_task_id, (int64_t)is_first);
                 add_scalar(g_task_id, (int64_t)is_last);
                 tm_submit(g_task_id);
-        g_task_id++;
+                atomic_fetch_add(&g_task_id, 1);
             }
         }
     }
