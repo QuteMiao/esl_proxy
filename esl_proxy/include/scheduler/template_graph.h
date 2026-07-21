@@ -5,18 +5,20 @@
 
 #include "scheduler/conf.h"
 
+static uint32_t total_task_cnt = 16;
+
 static uint32_t task_id_1[8] = {0, 1, 2, 3, 4, 5, 6, 7};
-static bool type_1[8] = {0, 1, 0, 1, 0, 1, 0};
+static bool type_1[8] = {0, 1, 0, 1, 0, 1, 0, 1};
 static int duration_1[8] = {5, 5, 5, 5, 5, 5, 5, 5};
-static int pre_cnt_1[8] = {0, 1, 1, 2, 2, 2, 2};
-static int pre_idx_1[8] = {0, 0, 1, 2, 4, 6, 8};
+static int pre_cnt_1[8] = {0, 1, 1, 2, 2, 2, 2, 2};
+static int pre_idx_1[8] = {0, 0, 1, 2, 4, 6, 8, 10};
 static int predecessors_1[] = {0, 0, 1, 2, 1, 2, 3, 4, 3, 4, 5, 6};
 
 static uint32_t task_id_2[8] = {8, 9, 10, 11, 12, 13, 14, 15};
-static bool type_2[8] = {0, 1, 0, 1, 0, 1, 0};
+static bool type_2[8] = {0, 1, 0, 1, 0, 1, 0, 1};
 static int duration_2[8] = {5, 5, 5, 5, 5, 5, 5, 5};
-static int pre_cnt_2[8] = {0, 1, 1, 2, 2, 2, 2};
-static int pre_idx_2[8] = {0, 0, 1, 2, 4, 6, 8};
+static int pre_cnt_2[8] = {0, 1, 1, 2, 2, 2, 2, 2};
+static int pre_idx_2[8] = {0, 0, 1, 2, 4, 6, 8, 10};
 static int predecessors_2[] = {8, 8, 9, 10, 9, 10, 11, 12, 11, 12, 13, 14};
 
 typedef struct subgraph {

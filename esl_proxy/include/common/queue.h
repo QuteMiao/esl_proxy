@@ -7,7 +7,6 @@
 #include <stdatomic.h>
 #include <string.h>
 
-
 #define QUEUE_DEPTH 1024
 
 typedef struct queue {

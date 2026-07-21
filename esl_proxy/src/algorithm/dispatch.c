@@ -19,6 +19,13 @@ extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 extern struct task_desc g_basic_buf[RING_SIZE];
 extern executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
 
+static inline uint64_t get_time_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
 static inline void set_mix(int tid)
 {
     for (int j = 0; j < AIC_OSTD; j++) {

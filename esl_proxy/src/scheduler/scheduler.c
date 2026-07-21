@@ -1,11 +1,5 @@
-#define _POSIX_C_SOURCE 199309L
-
-/*
-cc -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L -I esl_proxy/include \
-  -o /tmp/scheduler_test esl_proxy/src/scheduler/scheduler.c -lpthread
- */
-
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,21 +13,17 @@ cc -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L -I esl_prox
 #include "scheduler/painter.h"
 #include "scheduler/dispatch.h"
 
+static inline uint64_t get_time_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
 /* Global variable definitions needed by dispatch.c and painter.c */
-atomic_int g_completed_cnt = 0;
 atomic_bool g_is_done = false;
-atomic_bool g_orch_is_done = false;
-atomic_int g_task_id = 0;
 atomic_int g_min_uncomplete_task = 0;
-struct node_list g_successor_buf[RING_SIZE];
-ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
-int g_worker_log = 0;
-
-void log_write(const char *file, int line, const char *fmt, ...) { (void)file; (void)line; (void)fmt; }
-void main_log_write(int line, const char *fmt, ...) { (void)line; (void)fmt; }
-
-// #include "qwen3_dynamic_manual_scope.h"
 void *worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
@@ -41,19 +31,13 @@ void *worker(void *arg)
     return NULL;
 }
 
-static inline uint64_t get_time_ns(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-}
-
 int main(void) {
     pthread_t dispatch_threads[DISPATCH_THREAD_CNT];
     pthread_t painter_threads[PAINTER_THREAD_CNT];
 
-    // ring_buf_init();
-    // init_predecessors();
-    // init_ctrl_t();
+    buf_init();
+    init_state_buf();
+    init_ctrl_t();
     printf("painter,%d,dispatcher,%d\n", PAINTER_THREAD_CNT, DISPATCH_THREAD_CNT);
     uint64_t start_ns = get_time_ns();
     for (int i = 0; i < PAINTER_THREAD_CNT; i++) {
@@ -79,11 +63,12 @@ int main(void) {
     for (int i = 0; i < PAINTER_THREAD_CNT; i++) {
         pthread_join(painter_threads[i], NULL);
     }
+
     for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
         pthread_join(dispatch_threads[i], NULL);
     }
     uint64_t end_ns = get_time_ns();
     uint64_t duration = end_ns - start_ns;
-    printf("%lld/ns\n", duration);
+    printf("scheduler,%lld/ns\n", duration);
     return 0;
 }

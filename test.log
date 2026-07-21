@@ -1,0 +1,95 @@
+bin/scheduler_test
+painter,2,dispatcher,2
+painter,0,start
+ready,task_id,0,pre_cnt,0, type,0,cnt,1,
+add,task_id,0,successor_cnt,1,successor_id,1
+add,task_id,0,successor_cnt,2,successor_id,2
+add,task_id,1,successor_cnt,1,successor_id,3
+add,task_id,2,successor_cnt,1,successor_id,3
+add,task_id,1,successor_cnt,2,successor_id,4
+add,task_id,2,successor_cnt,2,successor_id,4
+add,task_id,3,successor_cnt,1,successor_id,5
+add,task_id,4,successor_cnt,1,successor_id,5
+add,task_id,3,successor_cnt,2,successor_id,6
+add,task_id,4,successor_cnt,2,successor_id,6
+add,task_id,5,successor_cnt,1,successor_id,7
+add,task_id,6,successor_cnt,1,successor_id,7
+batch_enqueue,0,cnt,1,first,0
+painter,1,start
+ready,task_id,8,pre_cnt,0, type,0,cnt,1,
+add,task_id,8,successor_cnt,1,successor_id,9
+add,task_id,8,successor_cnt,2,successor_id,10
+add,task_id,9,successor_cnt,1,successor_id,11
+add,task_id,10,successor_cnt,1,successor_id,11
+add,task_id,9,successor_cnt,2,successor_id,12
+add,task_id,10,successor_cnt,2,successor_id,12
+add,task_id,11,successor_cnt,1,successor_id,13
+add,task_id,12,successor_cnt,1,successor_id,13
+add,task_id,11,successor_cnt,2,successor_id,14
+add,task_id,12,successor_cnt,2,successor_id,14
+add,task_id,13,successor_cnt,1,successor_id,15
+add,task_id,14,successor_cnt,1,successor_id,15
+batch_enqueue,0,cnt,1,first,8
+dispatch,0,start
+send,task_id,0,core,0,slot,0,type,0
+send,task_id,8,core,1,slot,0,type,0
+completed,task_id,0,complete_cnt,0,core,0,bitmap,3
+completed,task_id,8,complete_cnt,1,core,1,bitmap,2
+dispatch,1,start
+completed,task_id,0,type,0, successor_cnt,0
+completed,task_id,8,type,0, successor_cnt,2
+painter, task_id,8, successor_id,9, predecessor_cnt,0
+ready,task_id,9,type,0,cnt,1
+painter, task_id,8, successor_id,10, predecessor_cnt,0
+ready,task_id,10,type,0,cnt,2
+batch_enqueue,0,cnt,2,first,9
+send,task_id,9,core,0,slot,0,type,0
+send,task_id,10,core,1,slot,0,type,0
+completed,task_id,9,complete_cnt,0,core,0,bitmap,3
+completed,task_id,10,complete_cnt,1,core,1,bitmap,2
+completed,task_id,9,type,0, successor_cnt,2
+painter, task_id,9, successor_id,11, predecessor_cnt,1
+painter, task_id,9, successor_id,12, predecessor_cnt,1
+completed,task_id,10,type,5, successor_cnt,2
+painter, task_id,10, successor_id,11, predecessor_cnt,0
+ready,task_id,11,type,0,cnt,1
+painter, task_id,10, successor_id,12, predecessor_cnt,0
+ready,task_id,12,type,5,cnt,1
+batch_enqueue,0,cnt,1,first,11
+send,task_id,11,core,0,slot,0,type,0
+completed,task_id,11,complete_cnt,0,core,0,bitmap,1
+min_uncomplete_task,1, total_task_cnt,16, cube_ready_cnt,0,vector_ready_cnt,0
+completed,task_id,0,type,0, successor_cnt,2
+painter, task_id,0, successor_id,1, predecessor_cnt,0
+ready,task_id,1,type,1,cnt,1
+painter, task_id,0, successor_id,2, predecessor_cnt,0
+ready,task_id,2,type,0,cnt,1
+completed,task_id,8,type,0, successor_cnt,0
+batch_enqueue,0,cnt,1,first,2
+batch_enqueue,1,cnt,1,first,1
+send,task_id,2,core,0,slot,0,type,0
+completed,task_id,2,complete_cnt,0,core,0,bitmap,1
+min_uncomplete_task,1, total_task_cnt,16, cube_ready_cnt,0,vector_ready_cnt,1
+completed,task_id,9,type,0, successor_cnt,0
+completed,task_id,11,type,0, successor_cnt,2
+painter, task_id,11, successor_id,13, predecessor_cnt,1
+painter, task_id,11, successor_id,14, predecessor_cnt,1
+completed,task_id,2,type,0, successor_cnt,0
+completed,task_id,10,type,0, successor_cnt,0
+completed,task_id,11,type,0, successor_cnt,0
+min_uncomplete_task,1, total_task_cnt,16, cube_ready_cnt,0,vector_ready_cnt,0
+completed,task_id,2,type,0, successor_cnt,2
+painter, task_id,2, successor_id,3, predecessor_cnt,1
+painter, task_id,2, successor_id,4, predecessor_cnt,1
+send,task_id,1,core,0,slot,0,type,1
+completed,task_id,1,complete_cnt,0,core,0,bitmap,1
+min_uncomplete_task,3, total_task_cnt,16, cube_ready_cnt,0,vector_ready_cnt,0
+completed,task_id,1,type,0, successor_cnt,2
+painter, task_id,1, successor_id,3, predecessor_cnt,0
+ready,task_id,3,type,1,cnt,1
+painter, task_id,1, successor_id,4, predecessor_cnt,0
+ready,task_id,4,type,0,cnt,1
+batch_enqueue,0,cnt,1,first,4
+batch_enqueue,1,cnt,1,first,3
+send,task_id,4,core,0,slot,0,type,0
+completed,task_id,4,complete_cnt,0,core,0,bitm

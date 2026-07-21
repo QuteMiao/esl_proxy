@@ -9,8 +9,6 @@
 #define DAG_TASK_H
 
 #include <stdint.h>
-#include <stdatomic.h>
-#include "conf.h"
 
 typedef uint16_t task_id_t;
 
@@ -47,6 +45,7 @@ enum {
 typedef struct {
     task_status_t state;
     uint16_t task_id;
+    task_type_t type;
     uint32_t successor_cnt;
 } task_state;
 

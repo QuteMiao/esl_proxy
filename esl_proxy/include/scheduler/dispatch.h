@@ -15,9 +15,8 @@
 #include <stddef.h>
 
 #include "scheduler/conf.h"
-#include "task.h"
 #include "common/queue.h"
-
+#include "common/task.h"
 
 typedef struct ctrl {
     // 64CORES
@@ -32,6 +31,7 @@ typedef struct ctrl {
     queue_t  remote_completed_queue;
     uint16_t tid;
 } ctrl_t;
+
 
 void *dispatch_worker(void *arg);
 void init_ctrl_t(void);

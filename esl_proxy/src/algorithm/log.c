@@ -1,9 +1,10 @@
-#include "log.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+
+#include "log.h"
 
 // Shared resources needed for WORKER_LOG only
 #if WORKER_LOG
@@ -166,7 +167,7 @@ void main_log_write(int line, const char *fmt, ...)
     va_start(args, fmt);
     
     // Output to stdout only
-    fprintf(stdout, "[main:%d] ", line);
+    fprintf(stdout, "[scheduler:%d] ", line);
     vfprintf(stdout, fmt, args);
     fprintf(stdout, "\n");
     

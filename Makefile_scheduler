@@ -3,11 +3,11 @@
 # Usage:
 #   make -f Makefile_scheduler        # compile
 #   make -f Makefile_scheduler run    # compile and run
+#            -D MAIN_LOG=1 -DWORKER_LOG=1 \
 
 CC       := cc
-CFLAGS   := -g -std=c11 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=199309L \
+CFLAGS   := -g -std=c11 -Wall -O2 \
             -I esl_proxy/include \
-            -I esl_proxy/include/algorithm \
             -Wno-macro-redefined
 
 UNAME_S  := $(shell uname -s)
@@ -25,7 +25,7 @@ SRCS := \
     esl_proxy/src/scheduler/dispatch.c \
     esl_proxy/src/scheduler/painter.c
 
-OBJS := $(patsubst esl_proxy/src/%.c,$(BIN_DIR)/%.o,$(SRCS))
+OBJS := $(patsubst esl_proxy/src/scheduler/%.c,$(BIN_DIR)/scheduler/%.o,$(SRCS))
 
 .PHONY: all run clean
 

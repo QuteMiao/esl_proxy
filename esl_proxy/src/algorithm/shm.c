@@ -39,39 +39,3 @@ void init_predecessors(void)
     }
 }
 
-void init_ctrl_t(void)
-{
-    for (int tid = 0; tid < DISPATCH_THREAD_CNT; tid++) {
-        g_ctrl_t[tid].tid = (uint16_t)tid;
-
-        // Initialize free_bitmap for TASK_TYPE
-        for (int i = 0; i < TASK_TYPE_CNT; i++) {
-            for (int j = 0; j < AIC_OSTD; j++) {
-                g_ctrl_t[tid].free_bitmap[i][j] = (uint64_t)((1ULL << AIC_CNT) - 1);
-            }
-        }
-        // set_mix(tid);
-        // Initialize msg_bitmap for EXE_TYPE
-        for (int i = 0; i < EXE_TYPE_CNT; i++) {
-            for (int j = 0; j < AIC_OSTD; j++) {
-                g_ctrl_t[tid].msg_bitmap[i][j] = 0x0;
-            }
-        }
-        
-        // Initialize task_id_map
-        for (int i = 0; i < EXE_TYPE_CNT; i++) {
-            for (int j = 0; j < AIC_CNT; j++) {
-                g_ctrl_t[tid].task_id_map1[i][j] = 0;
-                g_ctrl_t[tid].task_id_map2[i][j] = 0;
-            }
-        }
-        
-        // Initialize queues
-        for (int i = 0; i < TASK_TYPE_CNT; i++) {
-            memset(&g_ctrl_t[tid].ready_queue[i], 0, sizeof(queue_t));
-            atomic_flag_clear_explicit(&g_ctrl_t[tid].ready_queue[i].lock, memory_order_release);
-        }
-        memset(&g_ctrl_t[tid].completed_queue, 0, sizeof(queue_t));
-        atomic_flag_clear_explicit(&g_ctrl_t[tid].completed_queue.lock, memory_order_release);
-    }
-}
