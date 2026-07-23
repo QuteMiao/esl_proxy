@@ -19,6 +19,8 @@
 #include <string.h>
 #include <time.h>
 
+#define LOG_MAX_THREADS 16
+
 #if WORKER_LOG || MAIN_LOG
 /* monotonic nanosecond clock — only compiled when logging is enabled */
 static inline uint64_t get_time_ns(void)

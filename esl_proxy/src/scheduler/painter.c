@@ -6,16 +6,10 @@
 #include <stdio.h>
 
 #include "scheduler/painter.h"
+#include "common/log.h"
 
 task_state* g_state_buf[PAINTER_THREAD_CNT];
 uint16_t commit_task_id[PAINTER_THREAD_CNT] = {0, 0};
-
-static inline uint64_t get_time_ns(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-}
 
 void init_state_buf(void) {
     for (int j = 0; j < PAINTER_THREAD_CNT; j++)
@@ -59,7 +53,7 @@ static inline bool update_task_state(int tid, uint16_t cnt, uint16_t* cq_buf)
             }
         }
         atomic_store(&g_min_uncomplete_task, i);
-        printf("min_uncomplete_task,%u, total_task_cnt,%u, cube_ready_cnt,%d,vector_ready_cnt,%d\n", 
+        WORKER_LOGF("min_uncomplete_task,%u,total_task_cnt,%u,cube_ready_cnt,%d,vector_ready_cnt,%d", 
             g_min_uncomplete_task, total_task_cnt, g_ctrl_t[0].ready_queue[2].cnt, g_ctrl_t[0].ready_queue[1].cnt);
         completed_task_cnt += cnt;
         if (completed_task_cnt >= total_task_cnt)
@@ -81,7 +75,7 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
         if (pre_cnt <= 0) {
             rq_buf[type][ready_cnt[type]] = id;
             ready_cnt[type]++;
-            printf("ready,task_id,%d,pre_cnt,%d, type,%d,cnt,%d,\n",id, pre_cnt, type, ready_cnt[type]);
+            WORKER_LOGF("ready,task_id,%d,pre_cnt,%d,type,%d,cnt,%d",id, pre_cnt, type, ready_cnt[type]);
             commited_idx++;
             continue;
         }
@@ -97,7 +91,7 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
                 g_successor_buf[precessor_idx].node[successor_idx] = id;
                 g_state_buf[tid][precessor_idx].successor_cnt++;
                 predecessor_cnt++;
-                printf("add,task_id,%u,successor_cnt,%u,successor_id,%u\n", precessor_idx, g_successor_buf[precessor_idx].cnt, id);
+                WORKER_LOGF("add,task_id,%u,successor_cnt,%u,successor_id,%u", precessor_idx, g_successor_buf[precessor_idx].cnt, id);
             }
         }
         g_predecessor_cnt[id] = predecessor_cnt;
@@ -106,7 +100,7 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
             task_type_t type = test_graph[tid].type[commited_idx];
             rq_buf[type][ready_cnt[type]] = id;
             ready_cnt[type]++;
-            printf("ready,type,%d,cnt,%d\n",type, ready_cnt[type]);
+            WORKER_LOGF("ready,type,%d,cnt,%d",type, ready_cnt[type]);
         }
         commited_idx++;
     }
@@ -119,7 +113,7 @@ void send_2_ready_queue(uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SIZE]) 
         queue_t *rq = &g_ctrl_t[target_ctrl].ready_queue[j];
         if (ready_cnt[j] > 0)
         {
-            printf("batch_enqueue,%d,cnt,%u,first,%d\n",j, ready_cnt[j], rq_buf[j][0]);
+            WORKER_LOGF("batch_enqueue,%d,cnt,%u,first,%d",j, ready_cnt[j], rq_buf[j][0]);
             batch_enqueue(rq, rq_buf[j], ready_cnt[j]);
         }
     }
@@ -139,12 +133,12 @@ void resolve_dep(int tid, uint16_t cnt, uint16_t* cq_buf, uint16_t rq_buf[][RQ_B
         for (uint16_t k = 0; k < succ_cnt; k++) {
             succ_id = g_successor_buf[idx].node[k];
             g_predecessor_cnt[succ_id & RING_MASK]--;
-            printf("painter,task_id,%u,successor_id,%u,predecessor_cnt,%u\n", task_id, succ_id, g_predecessor_cnt[succ_id & RING_MASK]);
+            WORKER_LOGF("painter,task_id,%u,successor_id,%u,predecessor_cnt,%u", task_id, succ_id, g_predecessor_cnt[succ_id & RING_MASK]);
             if (g_predecessor_cnt[succ_id & RING_MASK] < 1) {
                 task_type_t type = g_state_buf[tid][succ_id].type;
                 rq_buf[type][ready_cnt[type]] = succ_id;
                 ready_cnt[type]++;
-                printf("ready,task_id,%d,type,%d,cnt,%d\n",succ_id, type, ready_cnt[type]);
+                WORKER_LOGF("ready,task_id,%d,type,%d,cnt,%d",succ_id, type, ready_cnt[type]);
             }
         }
     }
@@ -178,7 +172,7 @@ void *painter(void *arg)
 {
     int tid = (int)(intptr_t)arg;
     uint64_t start_ns = get_time_ns();
-    printf("painter,%d,start\n", tid);
+    WORKER_LOGF("painter,%d,start", tid);
     bool is_done = false;
     while (!is_done) {
         deal_completed_queue(tid);
@@ -188,9 +182,9 @@ void *painter(void *arg)
     uint64_t elapsed_ns = end_ns - start_ns;
     if (tid == 0)
     {
-        printf("painter, commit_tasks_cnt,%d, completed_task_cnt,%d ", commit_task_id[tid], completed_task_cnt);
-        printf("[painter] task_tp = %f MTasks/s",(float)(completed_task_cnt * 1000.0 / elapsed_ns));
+        WORKER_LOGF("painter,commit_tasks_cnt,%d,completed_task_cnt,%d", commit_task_id[tid], completed_task_cnt);
+        WORKER_LOGF("painter,task_tp,%f,MTasks/s",(float)(completed_task_cnt * 1000.0 / elapsed_ns));
     }
-    printf("painter,%d,done\n", tid);
+    WORKER_LOGF("painter,%d,done", tid);
     return NULL;
 }

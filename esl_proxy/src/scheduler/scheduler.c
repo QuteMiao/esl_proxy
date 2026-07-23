@@ -12,13 +12,7 @@
 #include "scheduler/conf.h"
 #include "scheduler/painter.h"
 #include "scheduler/dispatch.h"
-
-static inline uint64_t get_time_ns(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-}
+#include "common/log.h"
 
 /* Global variable definitions needed by dispatch.c and painter.c */
 atomic_bool g_is_done = false;
@@ -35,10 +29,13 @@ int main(void) {
     pthread_t dispatch_threads[DISPATCH_THREAD_CNT];
     pthread_t painter_threads[PAINTER_THREAD_CNT];
 
+    log_init("scheduler");
+    g_worker_log = 1;
+
     buf_init();
     init_state_buf();
     init_ctrl_t();
-    printf("painter,%d,dispatcher,%d\n", PAINTER_THREAD_CNT, DISPATCH_THREAD_CNT);
+    WORKER_LOGF("painter_cnt,%d,dispatcher_cnt,%d", PAINTER_THREAD_CNT, DISPATCH_THREAD_CNT);
     uint64_t start_ns = get_time_ns();
     for (int i = 0; i < PAINTER_THREAD_CNT; i++) {
         pthread_create(&painter_threads[i], NULL, painter, (void *)(intptr_t)i);
@@ -69,6 +66,7 @@ int main(void) {
     }
     uint64_t end_ns = get_time_ns();
     uint64_t duration = end_ns - start_ns;
-    printf("scheduler,%lld/ns\n", duration);
+    WORKER_LOGF("scheduler_duration,%lld/ns", duration);
+    log_close();
     return 0;
 }

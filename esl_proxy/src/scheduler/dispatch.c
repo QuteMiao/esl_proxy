@@ -5,6 +5,7 @@
  * This file is compiled separately as it contains pthread-specific code.
  */
 #include <stdint.h>
+#include <stdio.h>
 
 #include "scheduler/dispatch.h"
 #include "common/task.h"
@@ -77,7 +78,7 @@ static inline void get_completed(uint64_t* bitmap, uint16_t task_id[], int *comp
     while (cnt > 0) {
         uint64_t idx = (uint64_t)__builtin_ctzll(*bitmap);
         task_id[(*complete_cnt)] = task_id_map[idx];
-        printf("completed,task_id,%u,complete_cnt,%d,core,%d,bitmap,%u\n",task_id_map[idx], *complete_cnt,  idx, *bitmap);
+        WORKER_LOGF("completed,task_id,%u,complete_cnt,%d,core,%d,bitmap,%u",task_id_map[idx], *complete_cnt,  idx, *bitmap);
         (*complete_cnt)++;
         cnt--;
         *bitmap &= (*bitmap - 1);
@@ -105,7 +106,7 @@ static inline int send_task(ctrl_t *ctrl, int type)
     uint64_t free_bitmap = ctrl->free_bitmap[type][0] & ctrl->free_bitmap[type][1];
     int cnt = __builtin_popcountll(free_bitmap);
     if (cnt <= 0) {
-        printf("send,free_cnt,%d\n", cnt);
+        WORKER_LOGF("send,free_cnt,%d", cnt);
         return 0;
     }
     uint16_t task_ids[AIC_CNT];
@@ -135,7 +136,7 @@ static inline int send_task(ctrl_t *ctrl, int type)
 
         // Fake Return
         ctrl->msg_bitmap[type][slot] |= mask;
-        printf("send,task_id,%u,core,%d,slot,%d,type,%d\n", task_id, core, slot, type);
+        WORKER_LOGF("send,task_id,%u,core,%d,slot,%d,type,%d", task_id, core, slot, type);
         sent++;
         free_bitmap &= ~mask;
     }
@@ -160,12 +161,12 @@ void *dispatch_worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
     int total_sent = 0;
-    printf("dispatch,%d,start\n", tid);
+    WORKER_LOGF("dispatch,%d,start", tid);
     bool is_done = false;
     while (!is_done) {
         total_sent += dispatch(tid);
         is_done = atomic_load(&g_is_done);
     }
-    printf("dispatch,%d,done\n", tid);
+    WORKER_LOGF("dispatch,%d,done", tid);
     return NULL;
 }

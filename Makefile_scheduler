@@ -8,7 +8,8 @@
 CC       := cc
 CFLAGS   := -g -std=c11 -Wall -O2 \
             -I esl_proxy/include \
-            -Wno-macro-redefined
+            -Wno-macro-redefined \
+            -DWORKER_LOG=1 -DLOG_OUTPUT_MODE=0
 
 UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
@@ -23,7 +24,8 @@ TARGET   := $(BIN_DIR)/scheduler_test
 SRCS := \
     esl_proxy/src/scheduler/scheduler.c \
     esl_proxy/src/scheduler/dispatch.c \
-    esl_proxy/src/scheduler/painter.c
+    esl_proxy/src/scheduler/painter.c \
+    esl_proxy/src/scheduler/log.c
 
 OBJS := $(patsubst esl_proxy/src/scheduler/%.c,$(BIN_DIR)/scheduler/%.o,$(SRCS))
 
