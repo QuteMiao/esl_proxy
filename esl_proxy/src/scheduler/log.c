@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <sys/stat.h>
 
 #include "scheduler/conf.h"
 #include "common/log.h"
@@ -32,6 +33,9 @@ static unsigned int g_next_slot = 0;  // Next available slot for new thread
 
 void log_init(const char *base_filename)
 {
+    // Ensure log directory exists
+    mkdir("log", 0755);
+    
     pthread_mutex_lock(&g_log_mutex);
     
     // Store base filename
