@@ -25,7 +25,7 @@ struct node_list g_successor_exp_buf[HALF_RING_SIZE];
 struct predecessor_list g_predecessors[RING_SIZE];
 struct ring_buf g_predecessor_ring;
 
-uint16_t g_task_id_buf[RING_SIZE];
+uint32_t g_task_id_buf[RING_SIZE];
 executor_t g_executors[EXE_TYPE_CNT][AIC_CNT];
 atomic_flag g_lock_buf[RING_SIZE];
 mem_pool_t g_mem_pool;

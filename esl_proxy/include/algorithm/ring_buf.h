@@ -38,10 +38,10 @@ extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 extern int g_subtask_cnt;
 
 struct ring_buf {
-    uint16_t size;
-    uint16_t* head;
-    uint16_t* _Atomic start;
-    uint16_t* _Atomic tail;
+    uint32_t size;
+    uint32_t* head;
+    uint32_t* _Atomic start;
+    uint32_t* _Atomic tail;
 };
 
 static inline void ring_buf_init(void)
@@ -49,7 +49,7 @@ static inline void ring_buf_init(void)
     for (size_t i = 0; i < RING_SIZE; i++) {
         g_successor_buf[i].next = NULL;
     }
-    g_predecessor_ring.head = malloc(sizeof(uint16_t) * NODE_BUFF_SIZE);
+    g_predecessor_ring.head = malloc(sizeof(uint32_t) * NODE_BUFF_SIZE);
     atomic_store(&g_predecessor_ring.tail, g_predecessor_ring.head);
     atomic_store(&g_predecessor_ring.start, g_predecessor_ring.head);
 }
@@ -60,7 +60,7 @@ static inline void ring_buf_init(void)
  * here; the dependency direction (when needed) is tracked by the tensormap
  * layer, not the ring buffer. The distinct add_input/output/inout spellings are
  * kept only for call-site readability. */
-static inline void add_tensor_addr(uint16_t task_id, uint64_t addr)
+static inline void add_tensor_addr(uint32_t task_id, uint64_t addr)
 {
     int idx = g_basic_buf[task_id & RING_MASK].tensor_cnt++;
     g_basic_buf[task_id & RING_MASK].data[idx] = addr;
@@ -73,7 +73,7 @@ static inline void add_tensor_addr(uint16_t task_id, uint64_t addr)
 #define add_output(task_id, t) add_tensor_addr((task_id), (t).buffer_addr)
 #define add_inout(task_id, t)  add_tensor_addr((task_id), (t).buffer_addr)
 
-static inline void add_scalar(uint16_t task_id, int64_t t)
+static inline void add_scalar(uint32_t task_id, int64_t t)
 {
     int idx = g_basic_buf[task_id & RING_MASK].scalar_cnt++;
     g_basic_buf[task_id & RING_MASK].scalar[idx] = t;
@@ -91,7 +91,7 @@ static inline void unlock(int slotIdx)
     atomic_flag_clear_explicit(&g_lock_buf[slotIdx], memory_order_release);
 }
 
-static int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t n, uint16_t start)
+static int add_predecessors(uint32_t task_id, uint32_t target[], uint32_t n, uint32_t start)
 {
     // int slotIdx = task_id & RING_MASK;
     int slotIdx = task_id;
@@ -100,13 +100,13 @@ static int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t n, uin
     if (ptr->cnt <= 0)
         ptr->exp = atomic_load(&g_predecessor_ring.tail);
     
-    uint16_t min_uncomplete_task = atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire);
-    for (uint16_t i = 0; i < n; i++)
+    uint32_t min_uncomplete_task = atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire);
+    for (uint32_t i = 0; i < n; i++)
     {
         if (target[i] < min_uncomplete_task)
             continue;
         WORKER_LOGF("succeed,task_id,%u,predecessor_id,%u,idx,%d", task_id, target[i], cnt);
-        uint16_t* idx = atomic_fetch_add(&g_predecessor_ring.tail, 1);
+        uint32_t* idx = atomic_fetch_add(&g_predecessor_ring.tail, 1);
         *idx = target[i];
         cnt++;
     }
@@ -114,7 +114,7 @@ static int add_predecessors(uint16_t task_id, uint16_t target[], uint16_t n, uin
     return cnt;
 }
 
-static inline bool new_task(uint32_t task_id, uint16_t type, uint16_t count, uint16_t duration)
+static inline bool new_task(uint32_t task_id, uint32_t type, uint32_t count, uint32_t duration)
 {
     while ((task_id - atomic_load(&g_min_uncomplete_task)) >= RING_SIZE ) {
         MAIN_LOGF("[orchestration] task_id = %u g_min_uncomplete_task = %u", task_id, g_min_uncomplete_task);

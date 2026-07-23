@@ -25,7 +25,7 @@
 
 int g_subtask_cnt = 0;
 
-static inline void set_task_type(uint16_t task_id, task_type_t type) {
+static inline void set_task_type(uint32_t task_id, task_type_t type) {
     g_basic_buf[task_id & RING_MASK].type = type;
 }
 

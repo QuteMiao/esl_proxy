@@ -76,8 +76,8 @@ typedef struct TmDepsState {
 static TmDepsState g_tm_deps;
 
 typedef struct {
-    uint16_t consumer;
-    uint16_t preds[TM_PENDING_MAX_PRED];
+    uint32_t consumer;
+    uint32_t preds[TM_PENDING_MAX_PRED];
     int pn;
     bool is_inout;
 } TmCollectCtx;
@@ -88,7 +88,7 @@ static inline void tm_pending_clear(void) {
 
 static inline bool tm_collect_on_match(TmEntry *e, TmOverlap ov, void *ctx) {
     TmCollectCtx *c = (TmCollectCtx *)ctx;
-    const uint16_t p = (uint16_t)tm_local_of(e->producer_id);
+    const uint32_t p = (uint32_t)tm_local_of(e->producer_id);
     if (p != c->consumer) {
         for (int i = 0; i < c->pn; i++) {
             if (c->preds[i] == p) {
@@ -127,34 +127,34 @@ static inline void tm_deps_init(void) {
     tm_pending_clear();
 }
 
-static inline void tm_in_ptr(uint16_t tid, const Tensor *t) {
+static inline void tm_in_ptr(uint32_t tid, const Tensor *t) {
     add_tensor_addr(tid, t->buffer_addr);
     tm_pending_push(t, TM_PEND_IN);
 }
 
-static inline void tm_in_ro_ptr(uint16_t tid, const Tensor *t) {
+static inline void tm_in_ro_ptr(uint32_t tid, const Tensor *t) {
     add_tensor_addr(tid, t->buffer_addr);
 }
 
-static inline void tm_out_ro_ptr(uint16_t tid, const Tensor *t) {
+static inline void tm_out_ro_ptr(uint32_t tid, const Tensor *t) {
     add_tensor_addr(tid, t->buffer_addr);
 }
 
-static inline void tm_inout_ro_ptr(uint16_t tid, const Tensor *t) {
+static inline void tm_inout_ro_ptr(uint32_t tid, const Tensor *t) {
     add_tensor_addr(tid, t->buffer_addr);
 }
 
-static inline void tm_out_ptr(uint16_t tid, const Tensor *t) {
+static inline void tm_out_ptr(uint32_t tid, const Tensor *t) {
     add_tensor_addr(tid, t->buffer_addr);
     tm_pending_push(t, TM_PEND_OUT);
 }
 
-static inline void tm_inout_ptr(uint16_t tid, const Tensor *t) {
+static inline void tm_inout_ptr(uint32_t tid, const Tensor *t) {
     add_tensor_addr(tid, t->buffer_addr);
     tm_pending_push(t, TM_PEND_INOUT);
 }
 
-static inline void tm_submit_ptr(uint16_t tid) {
+static inline void tm_submit_ptr(uint32_t tid) {
     /* STEP 0: advance the alive watermark and cleanup retired entries before
      * the fanin lookup, matching PTO2 submit_task ordering. Doing it first uses
      * a fresher min_uncomplete_task (avoids depending on a just-completed
@@ -175,7 +175,7 @@ static inline void tm_submit_ptr(uint16_t tid) {
         }
     }
     if (ctx.pn > 0) {
-        add_predecessors(tid, ctx.preds, (uint16_t)ctx.pn, 0);
+        add_predecessors(tid, ctx.preds, (uint32_t)ctx.pn, 0);
     }
     for (i = 0; i < g_tm_deps.pend_n; i++) {
         if (g_tm_deps.pend[i].kind & TM_PEND_OUT) {

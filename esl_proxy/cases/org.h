@@ -44,11 +44,11 @@ extern atomic_int g_completed_cnt;
 #define DUR_DOWN_PROJ 72220
 #define DUR_DOWN_PROJ_RES 2590
 
-static inline void set_task_type(uint16_t task_id, task_type_t type) {
+static inline void set_task_type(uint32_t task_id, task_type_t type) {
     g_basic_buf[task_id & RING_MASK].type = type;
 }
 
-static inline void set_block_num(uint16_t task_id, uint32_t count) {
+static inline void set_block_num(uint32_t task_id, uint32_t count) {
     g_basic_buf[task_id & RING_MASK].mode = ORG_MODE_SPMD_SYNC;
     g_basic_buf[task_id & RING_MASK].count = count;
 }
@@ -74,7 +74,7 @@ static inline int qwen3_n_tasks(int total_chunks, int bpt) {
     return n;
 }
 
-static inline void qwen3_succeed_all(uint16_t consumer, const uint16_t *ids,
+static inline void qwen3_succeed_all(uint32_t consumer, const uint32_t *ids,
     int n) {
     for (int i = 0; i < n; i++)
         succeed(consumer, ids[i]);
@@ -115,10 +115,10 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
     Tensor q_proj_norm = alloc_tensors((uint32_t[2]){batch_padded, 5120}, 2, FLOAT32);
     Tensor k_proj_norm = alloc_tensors((uint32_t[2]){batch_padded, 1024}, 2, FLOAT32);
 
-    uint16_t qk_norm_per_tile[6];
-    uint16_t v_ids_per_tile[6][8];
+    uint32_t qk_norm_per_tile[6];
+    uint32_t v_ids_per_tile[6][8];
     int v_cnt_per_tile[6];
-    uint16_t os_by_b[90][4];
+    uint32_t os_by_b[90][4];
     int os_cnt_by_b[90];
 
     for (int64_t b0 = 0; b0 < batch_padded; b0 += 16) {
@@ -126,9 +126,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         Tensor normed_tile = alloc_tensors((uint32_t[2]){16, 5120}, 2, BFLOAT16);
         const int64_t cur_valid = (user_batch - b0 > 16) ? 16 : (user_batch - b0);
 
-        uint16_t q_ids[20];
-        uint16_t k_ids[8];
-        uint16_t v_ids[8];
+        uint32_t q_ids[20];
+        uint32_t k_ids[8];
+        uint32_t v_ids[8];
 
         g_task_id++;
         while (try_new_task(g_task_id)) {
@@ -142,7 +142,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         add_scalar(g_task_id, cur_valid);
         add_duration(g_task_id, DUR_RMSNORM);
         submit(g_task_id);
-        const uint16_t rmsnorm_id = g_task_id;
+        const uint32_t rmsnorm_id = g_task_id;
 
         for (int qi = 0, base = 0; base < 20; base += qwen3_blocks_per_task(20)) {
             int cur_blocks = qwen3_cur_blocks(20, base);
@@ -256,9 +256,9 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         const int64_t slot_block = (slot / 128);
         const int64_t slot_offset = (slot - (slot_block * 128));
 
-        uint16_t qk_ids[4];
-        uint16_t sm_ids[4];
-        uint16_t sv_ids[4];
+        uint32_t qk_ids[4];
+        uint32_t sm_ids[4];
+        uint32_t sv_ids[4];
 
         g_task_id++;
         while (try_new_task(g_task_id)) {
@@ -285,7 +285,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         succeed(g_task_id, qk_norm_per_tile[tix]);
         qwen3_succeed_all(g_task_id, v_ids_per_tile[tix], v_cnt_per_tile[tix]);
         submit(g_task_id);
-        const uint16_t rope_id = g_task_id;
+        const uint32_t rope_id = g_task_id;
 
         for (int ci = 0, base = 0; base < 4; base += qwen3_blocks_per_task(4)) {
             int cur_blocks = qwen3_cur_blocks(4, base);
@@ -391,11 +391,11 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         Tensor down_tile = alloc_tensors((uint32_t[2]){16, 5120}, 2, FLOAT32);
         const int64_t cur_valid = (user_batch - b0 > 16) ? 16 : (user_batch - b0);
 
-        uint16_t op_ids[40];
-        uint16_t gate_ids[34];
-        uint16_t up_ids[34];
-        uint16_t silu_ids[34];
-        uint16_t down_ids[40];
+        uint32_t op_ids[40];
+        uint32_t gate_ids[34];
+        uint32_t up_ids[34];
+        uint32_t silu_ids[34];
+        uint32_t down_ids[40];
 
         for (int opi = 0, base = 0; base < 40; base += qwen3_blocks_per_task(40)) {
             int cur_blocks = qwen3_cur_blocks(40, base);
@@ -438,7 +438,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
         qwen3_succeed_all(g_task_id, op_ids,
             qwen3_n_tasks(40, qwen3_blocks_per_task(40)));
         submit(g_task_id);
-        const uint16_t post_rmsnorm_id = g_task_id;
+        const uint32_t post_rmsnorm_id = g_task_id;
 
         for (int gi = 0, ui = 0, si = 0, base = 0; base < 34;
              base += qwen3_blocks_per_task(34)) {

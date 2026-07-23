@@ -81,8 +81,7 @@ static unsigned int find_or_create_thread_slot(pthread_t tid)
     g_log_files[idx] = fopen(g_log_filenames[idx], "w");
     if (!g_log_files[idx]) {
         perror("Failed to open thread log file");
-        g_thread_ids[idx] = 0;
-        return 0;
+        return idx;
     }
     
     // Write CSV header

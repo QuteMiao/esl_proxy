@@ -9,7 +9,7 @@
 
 #include "task.h"
 
-static inline void ready_enqueue(task_type_t type, org_mode_t mode, uint16_t task_id)
+static inline void ready_enqueue(task_type_t type, org_mode_t mode, uint32_t task_id)
 {
     (void)type;
     (void)mode;

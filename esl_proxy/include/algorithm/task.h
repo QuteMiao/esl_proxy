@@ -12,7 +12,7 @@
 #include <stdatomic.h>
 #include "conf.h"
 
-typedef uint16_t task_id_t;
+typedef uint32_t task_id_t;
 
 typedef enum {
     TASK_TYPE_CUBE   = 0,
@@ -46,12 +46,12 @@ enum {
 
 typedef struct {
     task_status_t state;
-    uint16_t task_id;
+    uint32_t task_id;
     uint32_t successor_cnt;
 } task_state;
 
 struct task_desc {
-    uint16_t       id;          /* ring-buffer task id */
+    uint32_t       id;          /* ring-buffer task id */
     task_type_t    type;        /* CUBE / VECTOR / MIX */
     org_mode_t     mode;        /* SINGLE / GROUP / SPMD_SYNC / SPMD_ASYNC */
     void          *kernel;      /* device kernel entry, NULL if unset */
@@ -59,14 +59,14 @@ struct task_desc {
     uint32_t       count;       /* SPMD instance count (block_num) */
     uint64_t       data[16];    /* tensor addresses (Tensor handles) */
     int64_t        scalar[32];  /* scalar kernel arguments */
-    uint16_t       tensor_cnt;  /* number of valid data[] entries */
-    uint16_t       scalar_cnt;  /* number of valid scalar[] entries */
-    uint16_t       duration;    /* estimated kernel cycles (low 16 bits) */
+    uint32_t       tensor_cnt;  /* number of valid data[] entries */
+    uint32_t       scalar_cnt;  /* number of valid scalar[] entries */
+    uint32_t       duration;    /* estimated kernel cycles (low 16 bits) */
 };
 
 struct predecessor_list {
-    uint16_t cnt;
-    uint16_t* exp;
+    uint32_t cnt;
+    uint32_t* exp;
 };
 
 #endif /* DAG_TASK_H */

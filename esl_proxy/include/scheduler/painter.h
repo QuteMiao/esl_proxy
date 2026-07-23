@@ -14,8 +14,8 @@
 #include "common/queue.h"
 
 struct node_list {
-    uint16_t cnt;
-    uint16_t node[CON_NODE_CNT];
+    uint32_t cnt;
+    uint32_t node[CON_NODE_CNT];
     struct node_list* next;
 };
 

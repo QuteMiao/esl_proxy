@@ -13,23 +13,23 @@ typedef struct queue {
     uint64_t cnt;
     uint64_t head;
     uint64_t tail;
-    uint16_t tasks[QUEUE_DEPTH];
+    uint32_t tasks[QUEUE_DEPTH];
     atomic_flag lock;
 } queue_t;
 
 static inline void lock_q(queue_t *queue);
 static inline void unlock_q(queue_t *queue);
 
-static inline bool batch_dequeue(queue_t *queue, uint16_t *item, uint16_t *n)
+static inline bool batch_dequeue(queue_t *queue, uint32_t *item, uint32_t *n)
 {
     lock_q(queue);
-    *n = (uint16_t)(queue->cnt < *n ? queue->cnt : *n);
+    *n = (uint32_t)(queue->cnt < *n ? queue->cnt : *n);
     if (*n == 0) {
         unlock_q(queue);
         return false;
     }
     uint64_t head = queue->head;
-    memcpy(item, &queue->tasks[head], *n * sizeof(uint16_t));
+    memcpy(item, &queue->tasks[head], *n * sizeof(uint32_t));
 
     queue->head = queue->head + *n;
     queue->cnt -= *n;
@@ -37,7 +37,7 @@ static inline bool batch_dequeue(queue_t *queue, uint16_t *item, uint16_t *n)
     return true;
 }
 
-static inline bool batch_enqueue(queue_t *queue, uint16_t *item, uint16_t n)
+static inline bool batch_enqueue(queue_t *queue, uint32_t *item, uint32_t n)
 {
     lock_q(queue);
     if ((QUEUE_DEPTH - queue->cnt) < n) {
@@ -45,14 +45,14 @@ static inline bool batch_enqueue(queue_t *queue, uint16_t *item, uint16_t n)
         return false;
     }
     uint64_t tail = queue->tail;
-    memcpy(&queue->tasks[tail], item, n * sizeof(uint16_t));
+    memcpy(&queue->tasks[tail], item, n * sizeof(uint32_t));
     queue->tail = tail + n;
     queue->cnt += n;
     unlock_q(queue);
     return true;
 }
 
-static inline bool dequeue(queue_t *queue, uint16_t* item)
+static inline bool dequeue(queue_t *queue, uint32_t* item)
 {
     lock_q(queue);
     if (queue->cnt < 1) {
@@ -66,7 +66,7 @@ static inline bool dequeue(queue_t *queue, uint16_t* item)
     return true;
 }
 
-static inline bool enqueue(queue_t *queue, uint16_t item)
+static inline bool enqueue(queue_t *queue, uint32_t item)
 {
     lock_q(queue);
     if (queue->cnt >= QUEUE_DEPTH) {

@@ -556,7 +556,7 @@ static inline void tm_copy_tensor_to_entry(const Tensor *t, TmEntry *e) {
 }
 
 static inline void tm_insert_tensor(TmTensorMap *self, const Tensor *t,
-    uint16_t tid) {
+    uint32_t tid) {
     const int32_t idx = tm_new_entry(self);
     if (idx < 0) {
         return;

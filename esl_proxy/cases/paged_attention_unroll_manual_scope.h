@@ -41,11 +41,11 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
     Tensor oi = alloc_tensors((uint32_t[2]){16, 128}, 2, FLOAT32); // q_tile=16, head_dim=128
     Tensor li_update = alloc_tensors((uint32_t[2]){1, 16}, 2, FLOAT32); // q_tile=16
     Tensor mi_update = alloc_tensors((uint32_t[2]){1, 16}, 2, FLOAT32); // q_tile=16
-    uint16_t task_preds[2];
+    uint32_t task_preds[2];
     for (uint64_t b_idx = 0; b_idx < 480; b_idx++) { // batch=480
         for (uint64_t q_idx = 0; q_idx < 1; q_idx++) { // q_loop=1
             const uint64_t cur_offset = b_idx * 16 + q_idx * 16; // num_heads=16, q_tile=16
-            uint16_t pre_task_id = 0;
+            uint32_t pre_task_id = 0;
             int has_pre = 0;
             for (uint64_t bn = 0; bn < 64; bn += 64) { // bn_this_batch=64, n_unroll=64
                 const uint64_t n_blocks = 64; // n_unroll=64
@@ -61,7 +61,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                 add_output(g_task_id, sij_buf);
                 add_scalar(g_task_id, (int64_t)n_blocks);
                 add_scalar(g_task_id, (int64_t)(b_idx * 64 + bn)); // block_num=64
-                const uint16_t qk_id = g_task_id;
+                const uint32_t qk_id = g_task_id;
                 g_task_id++;
                 Tensor pij_buf = alloc_tensors((uint32_t[2]){16, 8192}, 2, BFLOAT16); // q_tile=16, n_unroll*block_size=64*128
                 Tensor mi = alloc_tensors((uint32_t[2]){1, 16}, 2, FLOAT32); // q_tile=16
@@ -78,7 +78,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                 add_scalar(g_task_id, (int64_t)128); // block_size=128
                 task_preds[0] = qk_id;
                 add_predecessors(g_task_id, task_preds, 1, 0);
-                const uint16_t sf_id = g_task_id;
+                const uint32_t sf_id = g_task_id;
                 g_task_id++;
                 Tensor oi_new = alloc_tensors((uint32_t[2]){16, 128}, 2, FLOAT32); // q_tile=16, head_dim=128
 
@@ -92,7 +92,7 @@ void aicpu_orchestration_entry(const uint64_t orch_args) {
                 add_scalar(g_task_id, (int64_t)(b_idx * 64 + bn)); // block_num=64
                 task_preds[0] = sf_id;
                 add_predecessors(g_task_id, task_preds, 1, 0);
-                const uint16_t pv_id = g_task_id;
+                const uint32_t pv_id = g_task_id;
                 g_task_id++;
 
                 /* task 3: online_update */

@@ -10,6 +10,7 @@
 #include "scheduler/dispatch.h"
 #include "common/task.h"
 #include "common/log.h"
+#include "platform/a6.h"
 
 extern atomic_bool g_is_done;
 
@@ -18,12 +19,13 @@ ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 void init_ctrl_t(void)
 {
     for (int tid = 0; tid < DISPATCH_THREAD_CNT; tid++) {
-        g_ctrl_t[tid].tid = (uint16_t)tid;
+        g_ctrl_t[tid].tid = (uint32_t)tid;
+        g_ctrl_t[tid].aicore_mask = AICORE_MASK_PER_DIE;
 
         // Initialize free_bitmap for TASK_TYPE
         for (int i = 0; i < TASK_TYPE_CNT; i++) {
             for (int j = 0; j < AIC_OSTD; j++) {
-                g_ctrl_t[tid].free_bitmap[i][j] = (uint64_t)((1ULL << AIC_CNT) - 1);
+                g_ctrl_t[tid].free_bitmap[i][j] = AICORE_MASK_PER_DIE;
             }
         }
         // set_mix(tid);
@@ -34,15 +36,25 @@ void init_ctrl_t(void)
             }
         }
         
-        // Initialize task_id_map
+        // Init task_id_map
         for (int i = 0; i < EXE_TYPE_CNT; i++) {
             for (int j = 0; j < AIC_CNT; j++) {
                 g_ctrl_t[tid].task_id_map1[i][j] = 0;
                 g_ctrl_t[tid].task_id_map2[i][j] = 0;
             }
         }
+
+        // Init aicore_spr
+        for (size_t i = 0; i < EXE_TYPE_CNT; i++)
+        {
+            for (size_t j = 0; j < AIC_CNT; j++)
+            {
+                g_ctrl_t[tid].aicore_spr_1[i][j] = 0x0;
+                g_ctrl_t[tid].aicore_spr_2[i][j] = 0x0;
+            }
+        }
         
-        // Initialize queues
+        // Init queues
         for (int i = 0; i < TASK_TYPE_CNT; i++) {
             memset(&g_ctrl_t[tid].ready_queue[i], 0, sizeof(queue_t));
             atomic_flag_clear_explicit(&g_ctrl_t[tid].ready_queue[i].lock, memory_order_release);
@@ -71,8 +83,8 @@ static inline void get_free_exe(int tid)
     set_mix(tid);
 }
 
-static inline void get_completed(uint64_t* bitmap, uint16_t task_id[], int *complete_cnt,
-                                 const uint16_t task_id_map[])
+static inline void get_completed(uint64_t* bitmap, uint32_t task_id[], int *complete_cnt,
+                                 const uint32_t task_id_map[])
 {
     int cnt = __builtin_popcountll(*bitmap);
     while (cnt > 0) {
@@ -87,7 +99,7 @@ static inline void get_completed(uint64_t* bitmap, uint16_t task_id[], int *comp
 
 static inline void push_2_completed_queue(int tid)
 {
-    uint16_t task_id[240];
+    uint32_t task_id[240];
     int complete_cnt = 0;
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
         get_completed(&g_ctrl_t[tid].msg_bitmap[i][0], task_id, &complete_cnt,
@@ -95,8 +107,8 @@ static inline void push_2_completed_queue(int tid)
         get_completed(&g_ctrl_t[tid].msg_bitmap[i][1], task_id, &complete_cnt,
                       g_ctrl_t[tid].task_id_map2[i]);
     }
-    batch_enqueue(&g_ctrl_t[tid].completed_queue, task_id, (uint16_t)complete_cnt);
-    batch_enqueue(&g_ctrl_t[tid].remote_completed_queue, task_id, (uint16_t)complete_cnt);
+    batch_enqueue(&g_ctrl_t[tid].completed_queue, task_id, (uint32_t)complete_cnt);
+    batch_enqueue(&g_ctrl_t[tid].remote_completed_queue, task_id, (uint32_t)complete_cnt);
 }
 
 static inline int send_task(ctrl_t *ctrl, int type)
@@ -109,14 +121,14 @@ static inline int send_task(ctrl_t *ctrl, int type)
         WORKER_LOGF("send,free_cnt,%d", cnt);
         return 0;
     }
-    uint16_t task_ids[AIC_CNT];
+    uint32_t task_ids[AIC_CNT];
     if (!batch_dequeue(&ctrl->ready_queue[type], task_ids, &cnt)){
         return 0;
     }
     
     int sent = 0;
     for (int i = 0; i < cnt; i++) {
-        uint16_t task_id = task_ids[i];
+        uint32_t task_id = task_ids[i];
         uint64_t idx = (uint64_t)__builtin_ctzll(free_bitmap);
 
         uint64_t mask = (uint64_t)0x1 << idx;

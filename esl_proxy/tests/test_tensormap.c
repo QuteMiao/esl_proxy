@@ -170,7 +170,7 @@ static void test_lazy_invalidation_and_reuse(void) {
   tm_init(&map, g_buf, &cfg);
   for (uint32_t local = 0; local < 8; local++) {
     Tensor rr = tensor_1d(0x7000, 0, 16, 128);
-    tm_insert_tensor(&map, &rr, (uint16_t)local);
+    tm_insert_tensor(&map, &rr, (uint32_t)local);
   }
   tm_sync_tensormap(&map, 0, (int32_t)TM_CLEANUP_INTERVAL, TM_CLEANUP_INTERVAL);
   assert(tm_valid_count(&map) == 0);
@@ -191,7 +191,7 @@ static void test_sync_interval_gating(void) {
 
   for (uint32_t i = 0; i < 8; i++) {
     Tensor r = tensor_1d(0xE000, 0, 16, 128);
-    tm_insert_tensor(&map, &r, (uint16_t)i);
+    tm_insert_tensor(&map, &r, (uint32_t)i);
   }
   assert(tm_hdr(&map)->next_entry_idx == 8);
   assert(tm_hdr(&map)->free_num == 0);
@@ -392,7 +392,7 @@ static void bench_insert(uint32_t n) {
   const double t0 = now_sec();
   for (uint32_t i = 0; i < n; i++) {
     Tensor r = tensor_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
-    tm_insert_tensor(&map, &r, (uint16_t)(i & (cfg.task_window[0] - 1)));
+    tm_insert_tensor(&map, &r, (uint32_t)(i & (cfg.task_window[0] - 1)));
   }
   report("insert", (double)n, now_sec() - t0);
   free(img);
@@ -410,7 +410,7 @@ static void bench_lookup(uint32_t m, uint32_t queries) {
 
   for (uint32_t i = 0; i < m; i++) {
     Tensor r = tensor_1d(0x100000u + (uint64_t)i * 256u, 0, 64, 64);
-    tm_insert_tensor(&map, &r, (uint16_t)i);
+    tm_insert_tensor(&map, &r, (uint32_t)i);
   }
 
   uint64_t rng = 0x9E3779B97F4A7C15ULL;
@@ -442,7 +442,7 @@ static void bench_submit(uint32_t window, uint32_t per_task, uint32_t iters) {
       Tensor r =
           tensor_1d(0x200000u + (((uint64_t)cur * per_task + k) & 4095u) * 256u,
                     0, 64, 64);
-      tm_insert_tensor(&map, &r, (uint16_t)cur);
+      tm_insert_tensor(&map, &r, (uint32_t)cur);
     }
   }
 
@@ -452,7 +452,7 @@ static void bench_submit(uint32_t window, uint32_t per_task, uint32_t iters) {
       Tensor r =
           tensor_1d(0x200000u + (((uint64_t)cur * per_task + k) & 4095u) * 256u,
                     0, 64, 64);
-      tm_insert_tensor(&map, &r, (uint16_t)cur);
+      tm_insert_tensor(&map, &r, (uint32_t)cur);
     }
     tm_sync_tensormap(&map, 0, (int32_t)(cur - window + 1), cur);
   }

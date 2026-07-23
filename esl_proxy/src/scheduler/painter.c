@@ -9,7 +9,7 @@
 #include "common/log.h"
 
 task_state* g_state_buf[PAINTER_THREAD_CNT];
-uint16_t commit_task_id[PAINTER_THREAD_CNT] = {0, 0};
+uint32_t commit_task_id[PAINTER_THREAD_CNT] = {0, 0};
 
 void init_state_buf(void) {
     for (int j = 0; j < PAINTER_THREAD_CNT; j++)
@@ -27,16 +27,16 @@ void init_state_buf(void) {
 extern atomic_int g_min_uncomplete_task;
 extern ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 extern atomic_bool g_is_done;
-uint16_t  g_predecessor_cnt[RING_SIZE];
-uint16_t completed_task_cnt = 0;
+uint32_t  g_predecessor_cnt[RING_SIZE];
+uint32_t completed_task_cnt = 0;
 
-static inline bool update_task_state(int tid, uint16_t cnt, uint16_t* cq_buf)
+static inline bool update_task_state(int tid, uint32_t cnt, uint32_t* cq_buf)
 {
     if (cnt <= 0)
         return false;
     
-    uint16_t task_id;
-    uint16_t idx;
+    uint32_t task_id;
+    uint32_t idx;
 
     for (uint32_t j = 0; j < cnt; j++) {
         task_id = cq_buf[j];
@@ -46,7 +46,7 @@ static inline bool update_task_state(int tid, uint16_t cnt, uint16_t* cq_buf)
 
     if (tid == 0)
     {
-        uint16_t i = atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire);
+        uint32_t i = atomic_load_explicit(&g_min_uncomplete_task, memory_order_acquire);
         for (; i < total_task_cnt; i++) {
             if (g_state_buf[tid][i].state != TASK_STATUS_COMPLETED) {
                 break;
@@ -61,14 +61,14 @@ static inline bool update_task_state(int tid, uint16_t cnt, uint16_t* cq_buf)
     }
 }
 
-void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SIZE]) {
-    uint16_t tmp = commit_task_id[tid] + PRE_BATCH_SIZE;
-    uint16_t end = test_graph[tid].task_cnt - 1;
+void add_successors(int tid, uint32_t ready_cnt[], uint32_t rq_buf[][RQ_BATCH_SIZE]) {
+    uint32_t tmp = commit_task_id[tid] + PRE_BATCH_SIZE;
+    uint32_t end = test_graph[tid].task_cnt - 1;
     end = tmp > end ? end : tmp;
     int commited_idx = commit_task_id[tid];
     while (commited_idx <= end)
     {
-        uint16_t id = test_graph[tid].task_id[commited_idx];
+        uint32_t id = test_graph[tid].task_id[commited_idx];
         int pre_cnt = test_graph[tid].pre_cnt[commited_idx];
         task_type_t type = (task_type_t)test_graph[tid].type[commited_idx];
         g_state_buf[tid][id].type = type;
@@ -79,15 +79,15 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
             commited_idx++;
             continue;
         }
-        uint16_t predecessor_cnt = 0;
+        uint32_t predecessor_cnt = 0;
 
         for (int i = 0; i < pre_cnt; i++)
         {
             int pre_idx = test_graph[tid].pre_idx[commited_idx] + i;
-            uint16_t precessor_idx = (uint16_t)test_graph[tid].predecessors[pre_idx];
+            uint32_t precessor_idx = (uint32_t)test_graph[tid].predecessors[pre_idx];
             
             if(g_state_buf[tid][precessor_idx].state != TASK_STATUS_COMPLETED) {
-                uint16_t successor_idx = g_successor_buf[precessor_idx].cnt++;
+                uint32_t successor_idx = g_successor_buf[precessor_idx].cnt++;
                 g_successor_buf[precessor_idx].node[successor_idx] = id;
                 g_state_buf[tid][precessor_idx].successor_cnt++;
                 predecessor_cnt++;
@@ -107,8 +107,8 @@ void add_successors(int tid, uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SI
     commit_task_id[tid] = commited_idx;
 }
 
-void send_2_ready_queue(uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SIZE]) {
-    for (uint16_t j = 0; j < 2; j++) {
+void send_2_ready_queue(uint32_t ready_cnt[], uint32_t rq_buf[][RQ_BATCH_SIZE]) {
+    for (uint32_t j = 0; j < 2; j++) {
         int target_ctrl = 0;
         queue_t *rq = &g_ctrl_t[target_ctrl].ready_queue[j];
         if (ready_cnt[j] > 0)
@@ -119,18 +119,18 @@ void send_2_ready_queue(uint16_t ready_cnt[], uint16_t rq_buf[][RQ_BATCH_SIZE]) 
     }
 }
 
-void resolve_dep(int tid, uint16_t cnt, uint16_t* cq_buf, uint16_t rq_buf[][RQ_BATCH_SIZE], uint16_t* ready_cnt) {
-    uint16_t task_id;
-    uint16_t succ_id;
-    uint16_t idx;
-    uint16_t succ_cnt;
+void resolve_dep(int tid, uint32_t cnt, uint32_t* cq_buf, uint32_t rq_buf[][RQ_BATCH_SIZE], uint32_t* ready_cnt) {
+    uint32_t task_id;
+    uint32_t succ_id;
+    uint32_t idx;
+    uint32_t succ_cnt;
 
     for (uint32_t j = 0; j < cnt; j++) {
         task_id = cq_buf[j];
         idx = task_id & RING_MASK;
         task_state st = g_state_buf[tid][idx];
-        succ_cnt = (uint16_t)st.successor_cnt;
-        for (uint16_t k = 0; k < succ_cnt; k++) {
+        succ_cnt = (uint32_t)st.successor_cnt;
+        for (uint32_t k = 0; k < succ_cnt; k++) {
             succ_id = g_successor_buf[idx].node[k];
             g_predecessor_cnt[succ_id & RING_MASK]--;
             WORKER_LOGF("painter,task_id,%u,successor_id,%u,predecessor_cnt,%u", task_id, succ_id, g_predecessor_cnt[succ_id & RING_MASK]);
@@ -146,11 +146,11 @@ void resolve_dep(int tid, uint16_t cnt, uint16_t* cq_buf, uint16_t rq_buf[][RQ_B
 
 void deal_completed_queue(int tid) {
     for (int i = 0; i < DISPATCH_THREAD_CNT; i++) {
-        uint16_t cq_buf[CQ_BATCH_SIZE];
-        uint16_t cnt = CQ_BATCH_SIZE;
+        uint32_t cq_buf[CQ_BATCH_SIZE];
+        uint32_t cnt = CQ_BATCH_SIZE;
 
-        uint16_t rq_buf[2][RQ_BATCH_SIZE];
-        uint16_t ready_cnt[2] = {0, 0};
+        uint32_t rq_buf[2][RQ_BATCH_SIZE];
+        uint32_t ready_cnt[2] = {0, 0};
 
         queue_t *cq = (tid == i) ? (&g_ctrl_t[i].completed_queue) : (&g_ctrl_t[i].remote_completed_queue);
         batch_dequeue(cq, cq_buf, &cnt);

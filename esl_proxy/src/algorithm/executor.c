@@ -45,8 +45,8 @@ void* executor_worker(void *arg)
             for (int core = 0; core < AIC_CNT; core++) {
                 uint8_t idx = g_executors[exe_type][core].idx;
                 if (idx < AIC_OSTD) {
-                    uint16_t task_id = g_executors[exe_type][core].tasks[idx];
-                    uint16_t block_idx = g_executors[exe_type][core].block_idx[idx];
+                    uint32_t task_id = g_executors[exe_type][core].tasks[idx];
+                    uint32_t block_idx = g_executors[exe_type][core].block_idx[idx];
                     uint32_t block_count = g_basic_buf[task_id & RING_MASK].count;
                     
                     // Handle SPMD tasks with multiple blocks
@@ -59,7 +59,7 @@ void* executor_worker(void *arg)
                             if (block_idx < block_count) {
                                 // Get base duration for this task (reuse original value)
                                 g_executors[exe_type][core].duration[idx] = 
-                                    (uint16_t)g_basic_buf[task_id & RING_MASK].duration;
+                                    (uint32_t)g_basic_buf[task_id & RING_MASK].duration;
                             }
                         } else {
                             // Decrement current block's duration

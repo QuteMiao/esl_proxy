@@ -24,13 +24,13 @@ typedef struct ctrl {
     uint64_t free_bitmap[TASK_TYPE_CNT][AIC_OSTD];
     uint64_t msg_bitmap[EXE_TYPE_CNT][AIC_OSTD];
 
-    uint16_t task_id_map1[EXE_TYPE_CNT][AIC_CNT];
-    uint16_t task_id_map2[EXE_TYPE_CNT][AIC_CNT];
+    uint32_t task_id_map1[EXE_TYPE_CNT][AIC_CNT];
+    uint32_t task_id_map2[EXE_TYPE_CNT][AIC_CNT];
 
     queue_t  ready_queue[TASK_TYPE_CNT];
     queue_t  completed_queue;
     queue_t  remote_completed_queue;
-    uint16_t tid;
+    uint32_t tid;
 } ctrl_t;
 
 void *dispatch_worker(void *arg);
