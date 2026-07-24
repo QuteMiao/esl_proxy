@@ -6,3 +6,4 @@ log/scheduler_thread_4.csv
 bin/scheduler_test
 bin/scheduler/log.o
 bin/scheduler_test
+esl_proxy/include/platform/a6.h
