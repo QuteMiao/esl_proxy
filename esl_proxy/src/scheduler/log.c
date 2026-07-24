@@ -131,6 +131,7 @@ void log_write(const char *file, int line, const char *fmt, ...)
         fprintf(log_file, "%s,%d,", filename, line);
         vfprintf(log_file, fmt, args);
         fprintf(log_file, "\n");
+        fflush(log_file);
     }
     
     // Output to stdout (mode 1 or 2)
@@ -138,6 +139,7 @@ void log_write(const char *file, int line, const char *fmt, ...)
         fprintf(stdout, "[%s:%d] ", filename, line);
         vfprintf(stdout, fmt, args);
         fprintf(stdout, "\n");
+        fflush(stdout);
     }
     
     // Find current slot to increment line count

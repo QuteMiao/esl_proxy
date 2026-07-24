@@ -1,4 +1,5 @@
 #include <pthread.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,6 +19,12 @@
 atomic_bool g_is_done = false;
 atomic_int g_min_uncomplete_task = 0;
 
+static void handle_signal(int sig)
+{
+    (void)sig;
+    atomic_store_explicit(&g_is_done, true, memory_order_release);
+}
+
 void *worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
@@ -30,12 +37,21 @@ int main(void) {
     pthread_t painter_threads[PAINTER_THREAD_CNT];
 
     log_init("scheduler");
-    g_worker_log = 1;
+
+    /* SCHEDULER_LOG env var controls worker logging at runtime:
+     *   unset or "1" -> enabled (default)
+     *   "0" or "off" -> disabled for performance testing */
+    char *log_env = getenv("SCHEDULER_LOG");
+    g_worker_log = (!log_env || (strcmp(log_env, "0") != 0 && strcmp(log_env, "off") != 0)) ? 1 : 0;
 
     buf_init();
     init_state_buf();
     init_ctrl_t();
     WORKER_LOGF("painter_cnt,%d,dispatcher_cnt,%d", PAINTER_THREAD_CNT, DISPATCH_THREAD_CNT);
+    /* Register signal handlers for graceful shutdown on Ctrl+C */
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
     uint64_t start_ns = get_time_ns();
     for (int i = 0; i < PAINTER_THREAD_CNT; i++) {
         pthread_create(&painter_threads[i], NULL, painter, (void *)(intptr_t)i);

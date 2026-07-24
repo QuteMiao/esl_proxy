@@ -19,7 +19,7 @@ static bool type_2[8] = {0, 1, 0, 1, 0, 1, 0, 1};
 static int duration_2[8] = {5, 5, 5, 5, 5, 5, 5, 5};
 static int pre_cnt_2[8] = {0, 1, 1, 2, 2, 2, 2, 2};
 static int pre_idx_2[8] = {0, 0, 1, 2, 4, 6, 8, 10};
-static int predecessors_2[] = {8, 8, 9, 10, 9, 10, 11, 12, 11, 12, 13, 14};
+static int predecessors_2[] = {8, 8, 9, 10, 9, 2, 11, 12, 3, 12, 13, 14};
 
 typedef struct subgraph {
     uint32_t task_cnt;

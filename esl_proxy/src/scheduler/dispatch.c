@@ -125,15 +125,17 @@ static void hand_shake(int cpu_idx, uint64_t* aicore_spr[], int type, int ostd2_
     {
         uint64_t offset = type == 0 ? 0 : 128;
         msgq_addr = base + (i + offset)  * AICPU_MSGQ_OFFSET;
-        // *aicore_spr[i] = HAND_SHAKE_VAL | (msgq_addr & LOAW_ADDR_MASK);
-        WORKER_LOGF("cpu_idx,%d, index,%d, aicore_spr,%lx, msgq_addr,%lx", cpu_idx, i, aicore_spr[i], msgq_addr);
+        #ifdef REAL_CHIP
+        *aicore_spr[i] = HAND_SHAKE_VAL | (msgq_addr & LOAW_ADDR_MASK);
+        #endif
+        // WORKER_LOGF("cpu_idx,%d, index,%d, aicore_spr,%lx, msgq_addr,%lx", cpu_idx, i, aicore_spr[i], msgq_addr);
     }
 }
 
 static inline void read_msgq(int tid)
 {
+    #ifdef REAL_CHIP
     uint64_t msgq_value[4];
-
     READ_REG(g_ctrl_t[tid].msg_bitmap[0][0], MSGQ_VLD0);
     WRITE_REG(MSGQ_VLD0, g_ctrl_t[tid].msg_bitmap[0][0]);
 
@@ -145,6 +147,7 @@ static inline void read_msgq(int tid)
 
     READ_REG(g_ctrl_t[tid].msg_bitmap[1][1], MSGQ_VLD3);
     WRITE_REG(MSGQ_VLD3, g_ctrl_t[tid].msg_bitmap[1][1]);
+    #endif
 
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
         for (int j = 0; j < AIC_OSTD; j++) {
@@ -214,7 +217,6 @@ static inline int send_task(ctrl_t *ctrl, int type)
             *ctrl->aicore_spr_2[idx] = task_id;
             #endif
         } else {
-            
             ctrl->task_id_map1[type][idx] = task_id;
             #ifdef REAL_CHIP
             *ctrl->aicore_spr_1[idx] = task_id;

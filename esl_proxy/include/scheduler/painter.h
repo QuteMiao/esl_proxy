@@ -23,7 +23,7 @@ struct node_list {
  * which conflicts with common/queue.h) */
 extern atomic_int g_task_id;
 extern atomic_int g_min_uncomplete_task;
-struct node_list g_successor_buf[RING_SIZE];
+struct node_list g_successor_buf[PAINTER_THREAD_CNT][RING_SIZE];
 
 void *painter(void *arg);
 void init_state_buf(void);

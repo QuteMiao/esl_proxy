@@ -10,6 +10,7 @@
 
 task_state* g_state_buf[PAINTER_THREAD_CNT];
 uint32_t commit_task_id[PAINTER_THREAD_CNT] = {0, 0};
+struct node_list g_successor_buf[PAINTER_THREAD_CNT][RING_SIZE];
 
 void init_state_buf(void) {
     for (int j = 0; j < PAINTER_THREAD_CNT; j++)
@@ -87,11 +88,11 @@ void add_successors(int tid, uint32_t ready_cnt[], uint32_t rq_buf[][RQ_BATCH_SI
             uint32_t precessor_idx = (uint32_t)test_graph[tid].predecessors[pre_idx];
             
             if(g_state_buf[tid][precessor_idx].state != TASK_STATUS_COMPLETED) {
-                uint32_t successor_idx = g_successor_buf[precessor_idx].cnt++;
-                g_successor_buf[precessor_idx].node[successor_idx] = id;
+                uint32_t successor_idx = g_successor_buf[tid][precessor_idx].cnt++;
+                g_successor_buf[tid][precessor_idx].node[successor_idx] = id;
                 g_state_buf[tid][precessor_idx].successor_cnt++;
                 predecessor_cnt++;
-                WORKER_LOGF("add,task_id,%u,successor_cnt,%u,successor_id,%u", precessor_idx, g_successor_buf[precessor_idx].cnt, id);
+                WORKER_LOGF("add,task_id,%u,successor_cnt,%u,successor_id,%u", precessor_idx, g_successor_buf[tid][precessor_idx].cnt, id);
             }
         }
         g_predecessor_cnt[id] = predecessor_cnt;
@@ -129,9 +130,11 @@ void resolve_dep(int tid, uint32_t cnt, uint32_t* cq_buf, uint32_t rq_buf[][RQ_B
         task_id = cq_buf[j];
         idx = task_id & RING_MASK;
         task_state st = g_state_buf[tid][idx];
+
         succ_cnt = (uint32_t)st.successor_cnt;
+
         for (uint32_t k = 0; k < succ_cnt; k++) {
-            succ_id = g_successor_buf[idx].node[k];
+            succ_id = g_successor_buf[tid][idx].node[k];
             g_predecessor_cnt[succ_id & RING_MASK]--;
             WORKER_LOGF("painter,task_id,%u,successor_id,%u,predecessor_cnt,%u", task_id, succ_id, g_predecessor_cnt[succ_id & RING_MASK]);
             if (g_predecessor_cnt[succ_id & RING_MASK] < 1) {
@@ -163,8 +166,11 @@ void deal_completed_queue(int tid) {
 
 void buf_init(void)
 {
-    for (size_t i = 0; i < RING_SIZE; i++) {
-        g_successor_buf[i].next = NULL;
+    for (size_t j = 0; j < DISPATCH_THREAD_CNT; j++)
+    {
+        for (size_t i = 0; i < RING_SIZE; i++) {
+            g_successor_buf[j][i].next = NULL;
+        }
     }
 }
 
