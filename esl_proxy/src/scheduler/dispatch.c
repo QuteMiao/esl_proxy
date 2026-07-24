@@ -77,6 +77,8 @@ void init_ctrl_t(void)
         }
         memset(&g_ctrl_t[tid].completed_queue, 0, sizeof(queue_t));
         atomic_flag_clear_explicit(&g_ctrl_t[tid].completed_queue.lock, memory_order_release);
+        memset(&g_ctrl_t[tid].remote_completed_queue, 0, sizeof(queue_t));
+        atomic_flag_clear_explicit(&g_ctrl_t[tid].remote_completed_queue.lock, memory_order_release);
     }
 }
 
@@ -214,12 +216,12 @@ static inline int send_task(ctrl_t *ctrl, int type)
         if (slot == 1) {
             ctrl->task_id_map2[type][idx] = task_id;
             #ifdef REAL_CHIP
-            *ctrl->aicore_spr_2[idx] = task_id;
+            *ctrl->aicore_spr_2[type][idx] = task_id;
             #endif
         } else {
             ctrl->task_id_map1[type][idx] = task_id;
             #ifdef REAL_CHIP
-            *ctrl->aicore_spr_1[idx] = task_id;
+            *ctrl->aicore_spr_1[type][idx] = task_id;
             #endif
         }
         

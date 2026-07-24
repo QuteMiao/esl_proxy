@@ -28,10 +28,16 @@ static inline bool batch_dequeue(queue_t *queue, uint32_t *item, uint32_t *n)
         unlock_q(queue);
         return false;
     }
-    uint64_t head = queue->head;
-    memcpy(item, &queue->tasks[head], *n * sizeof(uint32_t));
+    uint64_t head = queue->head & (QUEUE_DEPTH - 1);
+    uint64_t available = QUEUE_DEPTH - head;
+    if (*n <= available) {
+        memcpy(item, &queue->tasks[head], *n * sizeof(uint32_t));
+    } else {
+        memcpy(item, &queue->tasks[head], available * sizeof(uint32_t));
+        memcpy(item + available, &queue->tasks[0], (*n - available) * sizeof(uint32_t));
+    }
 
-    queue->head = queue->head + *n;
+    queue->head = (queue->head + *n) & (QUEUE_DEPTH - 1);
     queue->cnt -= *n;
     unlock_q(queue);
     return true;
@@ -44,9 +50,15 @@ static inline bool batch_enqueue(queue_t *queue, uint32_t *item, uint32_t n)
         unlock_q(queue);
         return false;
     }
-    uint64_t tail = queue->tail;
-    memcpy(&queue->tasks[tail], item, n * sizeof(uint32_t));
-    queue->tail = tail + n;
+    uint64_t tail = queue->tail & (QUEUE_DEPTH - 1);
+    uint64_t available = QUEUE_DEPTH - tail;
+    if (n <= available) {
+        memcpy(&queue->tasks[tail], item, n * sizeof(uint32_t));
+    } else {
+        memcpy(&queue->tasks[tail], item, available * sizeof(uint32_t));
+        memcpy(&queue->tasks[0], item + available, (n - available) * sizeof(uint32_t));
+    }
+    queue->tail = (queue->tail + n) & (QUEUE_DEPTH - 1);
     queue->cnt += n;
     unlock_q(queue);
     return true;
