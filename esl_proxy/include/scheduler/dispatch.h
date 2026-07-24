@@ -28,8 +28,8 @@ typedef struct ctrl {
     uint32_t task_id_map1[EXE_TYPE_CNT][AIC_CNT];
     uint32_t task_id_map2[EXE_TYPE_CNT][AIC_CNT];
 
-    uint64_t aicore_spr_1[EXE_TYPE_CNT][AIC_CNT];
-    uint64_t aicore_spr_2[EXE_TYPE_CNT][AIC_CNT];
+    uint64_t* aicore_spr_1[EXE_TYPE_CNT][AIC_CNT];
+    uint64_t* aicore_spr_2[EXE_TYPE_CNT][AIC_CNT];
 
     queue_t  ready_queue[TASK_TYPE_CNT];
     queue_t  completed_queue;

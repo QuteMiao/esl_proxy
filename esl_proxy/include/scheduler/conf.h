@@ -8,7 +8,9 @@
 #define CON_NODE_CNT 32
 
 #define AIC_OSTD 2
-#define AIC_CNT 60
+#define AIC_CNT 64
+
+#define AIC_CNT_PER_DIE 32
 #define DIE_CNT 2
 #define EXE_TYPE_CNT 2
 
@@ -19,6 +21,7 @@
 
 #define PAINTER_THREAD_CNT 2
 #define DISPATCH_THREAD_CNT 2
+#define AIC_CNT_PER_THREAD 32
 
 /* 1: compile in worker logs; toggle at runtime via g_worker_log or WORKER_LOG env */
 #define WORKER_LOG 1

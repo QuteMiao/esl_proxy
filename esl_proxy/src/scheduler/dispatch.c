@@ -45,12 +45,24 @@ void init_ctrl_t(void)
         }
 
         // Init aicore_spr
+        uint64_t base = 0;
+        uint64_t idx = 0;
         for (size_t i = 0; i < EXE_TYPE_CNT; i++)
         {
-            for (size_t j = 0; j < AIC_CNT; j++)
+            idx = 0;
+            for (size_t j = AIC_CNT_PER_THREAD * tid; j < AIC_CNT_PER_THREAD * (tid + 1); j++)
             {
-                g_ctrl_t[tid].aicore_spr_1[i][j] = 0x0;
-                g_ctrl_t[tid].aicore_spr_2[i][j] = 0x0;
+                base = AICORE_SPR_BASE;
+                base += (i == 0 ? AICORE_CUBE_OFFSET : AICORE_VECTOR_OFFSET);
+                if (j >= AIC_CNT_PER_DIE) {
+                    base += AICORE_DIE_OFFSET + AICORE_OFFSET * (j - AIC_CNT_PER_DIE);
+                } else {
+                    base += AICORE_OFFSET * j;
+                }
+
+                g_ctrl_t[tid].aicore_spr_1[i][idx] = (uint64_t*)base;
+                g_ctrl_t[tid].aicore_spr_2[i][idx] = (uint64_t*)(base + AICORE_SPR_OFFSET); 
+                idx++;
             }
         }
         
@@ -70,6 +82,19 @@ static inline void set_mix(int tid)
         g_ctrl_t[tid].free_bitmap[TASK_TYPE_MIX][j] =
             g_ctrl_t[tid].free_bitmap[TASK_TYPE_CUBE][j] &
             g_ctrl_t[tid].free_bitmap[TASK_TYPE_VECTOR][j];
+    }
+}
+
+static void hand_shake(int cpu_idx, uint64_t* aicore_spr[], int type) {
+    uint64_t base = AICPU_MSGQ_BASE + cpu_idx * AICPU_OFFSET;
+    uint64_t msgq_addr = 0;
+
+    for (size_t i = 0; i < AIC_CNT_PER_THREAD; i++)
+    {
+        uint64_t offset = type == 0 ? 0 : 64;
+        msgq_addr = base + (i + offset)  * AICPU_MSGQ_OFFSET;
+        // *aicore_spr[i] = HAND_SHAKE_VAL | (msgq_addr & LOAW_ADDR_MASK);
+        WORKER_LOGF("cpu_idx,%d, index,%d, aicore_spr,%lx, msgq_addr,%lx", cpu_idx, i, aicore_spr[i], msgq_addr);
     }
 }
 
@@ -174,6 +199,15 @@ void *dispatch_worker(void *arg)
     int tid = (int)(intptr_t)arg;
     int total_sent = 0;
     WORKER_LOGF("dispatch,%d,start", tid);
+    for (size_t i = 0; i < EXE_TYPE_CNT; i++)
+    {        
+        hand_shake(tid, g_ctrl_t[tid].aicore_spr_1[i], i);
+        hand_shake((tid + 1), g_ctrl_t[tid].aicore_spr_2[i], i);
+    }
+
+    atomic_store_explicit(&g_is_done, true, memory_order_release);
+    return NULL;
+
     bool is_done = false;
     while (!is_done) {
         total_sent += dispatch(tid);
