@@ -54,8 +54,11 @@ static inline bool update_task_state(int tid, uint32_t cnt, uint32_t* cq_buf)
             }
         }
         atomic_store(&g_min_uncomplete_task, i);
-        WORKER_LOGF("min_uncomplete_task,%u,total_task_cnt,%u,cube_ready_cnt,%d,vector_ready_cnt,%d", 
-            g_min_uncomplete_task, total_task_cnt, g_ctrl_t[0].ready_queue[0].cnt, g_ctrl_t[0].ready_queue[1].cnt);
+        WORKER_LOGF("min_uncomplete_task,%u,total_task_cnt,%u,cube_ready_cnt,%d,vector_ready_cnt,%d,mix_ready_cnt,%d", 
+            g_min_uncomplete_task, total_task_cnt,
+            (int)g_ctrl_t[0].ready_queue[TASK_TYPE_CUBE].cnt,
+            (int)g_ctrl_t[0].ready_queue[TASK_TYPE_VECTOR].cnt,
+            (int)g_ctrl_t[0].ready_queue[TASK_TYPE_MIX].cnt);
         completed_task_cnt += cnt;
         if (completed_task_cnt >= total_task_cnt)
             atomic_store_explicit(&g_is_done, true, memory_order_release);
@@ -153,7 +156,7 @@ void deal_completed_queue(int tid) {
         uint32_t cnt = CQ_BATCH_SIZE;
 
         uint32_t rq_buf[TASK_TYPE_CNT][RQ_BATCH_SIZE];
-        uint32_t ready_cnt[TASK_TYPE_CNT] = {0, 0};
+        uint32_t ready_cnt[TASK_TYPE_CNT] = {0};
 
         queue_t *cq = (tid == i) ? (&g_ctrl_t[i].completed_queue) : (&g_ctrl_t[i].remote_completed_queue);
         batch_dequeue(cq, cq_buf, &cnt);

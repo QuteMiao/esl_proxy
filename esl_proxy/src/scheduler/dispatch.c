@@ -6,6 +6,7 @@
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "scheduler/dispatch.h"
 #include "common/task.h"
@@ -15,6 +16,16 @@
 extern atomic_bool g_is_done;
 
 ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
+
+static inline void set_mix(int tid)
+{
+    /* Derive MIX capacity only; never overwrite CUBE/VECTOR free bits. */
+    for (int j = 0; j < AIC_OSTD; j++) {
+        g_ctrl_t[tid].free_bitmap[TASK_TYPE_MIX][j] =
+            g_ctrl_t[tid].free_bitmap[TASK_TYPE_CUBE][j] &
+            g_ctrl_t[tid].free_bitmap[TASK_TYPE_VECTOR][j];
+    }
+}
 
 void init_ctrl_t(void)
 {
@@ -26,29 +37,27 @@ void init_ctrl_t(void)
             g_ctrl_t[tid].aicore_mask = ~0ULL >> (64 - AIC_CNT_PER_THREAD);
         }
 
-        // Initialize free_bitmap for TASK_TYPE
-        for (int i = 0; i < TASK_TYPE_CNT; i++) {
+        /* Authoritative free bits are CUBE/VECTOR; MIX is derived below. */
+        for (int i = 0; i < EXE_TYPE_CNT; i++) {
             for (int j = 0; j < AIC_OSTD; j++) {
                 g_ctrl_t[tid].free_bitmap[i][j] = g_ctrl_t[tid].aicore_mask;
             }
         }
-        // set_mix(tid);
-        // Initialize msg_bitmap for EXE_TYPE
         for (int i = 0; i < EXE_TYPE_CNT; i++) {
             for (int j = 0; j < AIC_OSTD; j++) {
                 g_ctrl_t[tid].msg_bitmap[i][j] = 0x0;
             }
         }
-        
-        // Init task_id_map
+
         for (int i = 0; i < EXE_TYPE_CNT; i++) {
             for (int j = 0; j < AIC_CNT; j++) {
                 g_ctrl_t[tid].task_id_map1[i][j] = 0;
                 g_ctrl_t[tid].task_id_map2[i][j] = 0;
             }
         }
+        memset(g_ctrl_t[tid].mix_side_done, 0, sizeof(g_ctrl_t[tid].mix_side_done));
+        set_mix(tid);
 
-        // Init aicore_spr
         uint64_t base = 0;
         uint64_t idx = 0;
         for (size_t i = 0; i < EXE_TYPE_CNT; i++)
@@ -65,12 +74,11 @@ void init_ctrl_t(void)
                 }
 
                 g_ctrl_t[tid].aicore_spr_1[i][idx] = (uint64_t*)base;
-                g_ctrl_t[tid].aicore_spr_2[i][idx] = (uint64_t*)(base + AICORE_SPR_OFFSET); 
+                g_ctrl_t[tid].aicore_spr_2[i][idx] = (uint64_t*)(base + AICORE_SPR_OFFSET);
                 idx++;
             }
         }
-        
-        // Init queues
+
         for (int i = 0; i < TASK_TYPE_CNT; i++) {
             memset(&g_ctrl_t[tid].ready_queue[i], 0, sizeof(queue_t));
             atomic_flag_clear_explicit(&g_ctrl_t[tid].ready_queue[i].lock, memory_order_release);
@@ -81,43 +89,6 @@ void init_ctrl_t(void)
         atomic_flag_clear_explicit(&g_ctrl_t[tid].remote_completed_queue.lock, memory_order_release);
     }
 }
-
-static inline void set_mix(int tid)
-{
-    for (int j = 0; j < AIC_OSTD; j++) {
-        g_ctrl_t[tid].free_bitmap[TASK_TYPE_MIX][j] =
-            g_ctrl_t[tid].free_bitmap[TASK_TYPE_CUBE][j] &
-            g_ctrl_t[tid].free_bitmap[TASK_TYPE_VECTOR][j];
-    }
-}
-
-/*
-        for (size_t i = 0; i < EXE_TYPE_CNT; i++)
-        {
-            idx = 0;
-            for (size_t j = AIC_CNT_PER_THREAD * tid; j < AIC_CNT_PER_THREAD * (tid + 1); j++)
-            {
-                base = AICORE_SPR_BASE;
-                base += (i == 0 ? AICORE_CUBE_OFFSET : AICORE_VECTOR_OFFSET);
-                if (j >= AIC_CNT_PER_DIE) {
-                    base += AICORE_DIE_OFFSET + AICORE_OFFSET * (j - AIC_CNT_PER_DIE);
-                } else {
-                    base += AICORE_OFFSET * j;
-                }
-
-                g_ctrl_t[tid].aicore_spr_1[i][idx] = (uint64_t*)base;
-                g_ctrl_t[tid].aicore_spr_2[i][idx] = (uint64_t*)(base + AICORE_SPR_OFFSET); 
-                idx++;
-            }
-        }
-
-        for (size_t i = 0; i < EXE_TYPE_CNT; i++)
-        {        
-            hand_shake(tid, g_ctrl_t[tid].aicore_spr_1[i], i);
-            hand_shake((tid + 1), g_ctrl_t[tid].aicore_spr_2[i], i);
-        }
-*/
-
 
 static void hand_shake(int cpu_idx, uint64_t* aicore_spr[], int type, int ostd2_offset) {
     uint64_t base = AICPU_MSGQ_BASE + cpu_idx * AICPU_OFFSET + ostd2_offset * AICPU_MSGQ_OFFSET;
@@ -130,14 +101,13 @@ static void hand_shake(int cpu_idx, uint64_t* aicore_spr[], int type, int ostd2_
         #ifdef REAL_CHIP
         *aicore_spr[i] = HAND_SHAKE_VAL | (msgq_addr & LOAW_ADDR_MASK);
         #endif
-        // WORKER_LOGF("cpu_idx,%d, index,%d, aicore_spr,%lx, msgq_addr,%lx", cpu_idx, i, aicore_spr[i], msgq_addr);
+        (void)msgq_addr;
     }
 }
 
 static inline void read_msgq(int tid)
 {
     #ifdef REAL_CHIP
-    uint64_t msgq_value[4];
     READ_REG(g_ctrl_t[tid].msg_bitmap[0][0], MSGQ_VLD0);
     WRITE_REG(MSGQ_VLD0, g_ctrl_t[tid].msg_bitmap[0][0]);
 
@@ -159,51 +129,106 @@ static inline void read_msgq(int tid)
     set_mix(tid);
 }
 
-static inline void get_completed(uint64_t* bitmap, uint32_t task_id[], int *complete_cnt,
-                                 const uint32_t task_id_map[])
+static inline uint32_t *map_ptr(ctrl_t *ctrl, int exe, int slot)
 {
+    return (slot == 0) ? ctrl->task_id_map1[exe] : ctrl->task_id_map2[exe];
+}
+
+/*
+ * Collect completions from one (exe, slot) msg bitmap.
+ * MIX (same task_id on both tracks at this core): enqueue only when both sides
+ * have reported; on partial, re-busy the freed side so send cannot reuse it.
+ */
+static inline void collect_completed(ctrl_t *ctrl, int exe, int slot,
+                                     uint64_t *bitmap, uint32_t task_id[],
+                                     int *complete_cnt)
+{
+    uint32_t *map = map_ptr(ctrl, exe, slot);
+    uint32_t *other_map = map_ptr(ctrl, 1 - exe, slot);
     int cnt = __builtin_popcountll(*bitmap);
     while (cnt > 0) {
         uint64_t idx = (uint64_t)__builtin_ctzll(*bitmap);
-        task_id[(*complete_cnt)] = task_id_map[idx];
-        WORKER_LOGF("completed,task_id,%u,complete_cnt,%d,core,%d,bitmap,%u",task_id_map[idx], *complete_cnt,  idx, *bitmap);
-        (*complete_cnt)++;
-        cnt--;
+        uint64_t mask = (uint64_t)0x1 << idx;
+        uint32_t tid = map[idx];
+        uint32_t other_tid = other_map[idx];
+
+        if (tid != 0 && other_tid == tid) {
+            ctrl->mix_side_done[slot][idx] |= (uint8_t)(1u << exe);
+            if (ctrl->mix_side_done[slot][idx] == 0x3) {
+                task_id[(*complete_cnt)++] = tid;
+                ctrl->mix_side_done[slot][idx] = 0;
+                WORKER_LOGF("completed,mix,task_id,%u,complete_cnt,%d,core,%d,slot,%d",
+                            tid, *complete_cnt, (int)idx, slot);
+            } else {
+                ctrl->free_bitmap[exe][slot] &= ~mask;
+                WORKER_LOGF("completed,mix_partial,task_id,%u,side,%d,core,%d,slot,%d",
+                            tid, exe, (int)idx, slot);
+            }
+        } else {
+            task_id[(*complete_cnt)++] = tid;
+            WORKER_LOGF("completed,task_id,%u,complete_cnt,%d,core,%d,slot,%d,exe,%d",
+                        tid, *complete_cnt, (int)idx, slot, exe);
+        }
         *bitmap &= (*bitmap - 1);
+        cnt--;
     }
 }
 
 static inline void push_2_completed_queue(int tid)
 {
+    ctrl_t *ctrl = &g_ctrl_t[tid];
     uint32_t task_id[240];
     int complete_cnt = 0;
-    for (int i = 0; i < EXE_TYPE_CNT; i++) {
-        get_completed(&g_ctrl_t[tid].msg_bitmap[i][0], task_id, &complete_cnt,
-                      g_ctrl_t[tid].task_id_map1[i]);
-        get_completed(&g_ctrl_t[tid].msg_bitmap[i][1], task_id, &complete_cnt,
-                      g_ctrl_t[tid].task_id_map2[i]);
+    for (int exe = 0; exe < EXE_TYPE_CNT; exe++) {
+        collect_completed(ctrl, exe, 0, &ctrl->msg_bitmap[exe][0], task_id, &complete_cnt);
+        collect_completed(ctrl, exe, 1, &ctrl->msg_bitmap[exe][1], task_id, &complete_cnt);
     }
-    batch_enqueue(&g_ctrl_t[tid].completed_queue, task_id, (uint32_t)complete_cnt);
-    batch_enqueue(&g_ctrl_t[tid].remote_completed_queue, task_id, (uint32_t)complete_cnt);
+    set_mix(tid);
+    if (complete_cnt > 0) {
+        batch_enqueue(&ctrl->completed_queue, task_id, (uint32_t)complete_cnt);
+        batch_enqueue(&ctrl->remote_completed_queue, task_id, (uint32_t)complete_cnt);
+    }
+}
+
+static inline void bind_core(ctrl_t *ctrl, int exe, int slot, uint64_t idx,
+                             uint32_t task_id)
+{
+    uint64_t mask = (uint64_t)0x1 << idx;
+    if (slot == 1) {
+        ctrl->task_id_map2[exe][idx] = task_id;
+        #ifdef REAL_CHIP
+        *ctrl->aicore_spr_2[exe][idx] = task_id;
+        #endif
+    } else {
+        ctrl->task_id_map1[exe][idx] = task_id;
+        #ifdef REAL_CHIP
+        *ctrl->aicore_spr_1[exe][idx] = task_id;
+        #endif
+    }
+    ctrl->free_bitmap[exe][slot] &= ~mask;
+    #ifndef REAL_CHIP
+    ctrl->msg_bitmap[exe][slot] |= mask;
+    #endif
 }
 
 static inline int send_task(ctrl_t *ctrl, int type)
 {
-    // Check both slots - slot is free if neither slot 0 nor slot 1 has been sent a task.
-    // Mask with this die's aicore_mask so ctz stays within owned cores.
+    /*
+     * Free demand:
+     * - CUBE/VECTOR: that track's free bits
+     * - MIX: derived free_bitmap[MIX] == cube & vector (same-index implicit block)
+     */
     uint64_t free_bitmap = (ctrl->free_bitmap[type][0] & ctrl->free_bitmap[type][1])
                           & ctrl->aicore_mask;
     int free_demand = __builtin_popcountll(free_bitmap);
     if (free_demand <= 0) {
-        WORKER_LOGF("send,free_cnt,%d", free_demand);
+        WORKER_LOGF("send,free_cnt,%d,type,%d", free_demand, type);
         return 0;
     }
     uint32_t task_ids[AIC_CNT];
     uint32_t got = (uint32_t)free_demand;
     if (!batch_dequeue(&ctrl->ready_queue[type], task_ids, &got)) {
-        /* Cross-die work-stealing: local ready_queue[type] empty but free cores
-         * remain. Steal from other dies' same-type queues; batch_dequeue clamps
-         * to min(victim.cnt, free_demand) under the victim lock. */
+        /* Cross-die work-stealing: same-type only; no SPMD expand. */
         int stole = 0;
         for (uint32_t v = 0; v < DISPATCH_THREAD_CNT; v++) {
             if (v == ctrl->tid) {
@@ -227,33 +252,21 @@ static inline int send_task(ctrl_t *ctrl, int type)
     for (uint32_t i = 0; i < got; i++) {
         uint32_t task_id = task_ids[i];
         uint64_t idx = (uint64_t)__builtin_ctzll(free_bitmap);
-
         uint64_t mask = (uint64_t)0x1 << idx;
-        // Determine which slot to use - prefer slot 0 if it's not busy
         int slot = (ctrl->free_bitmap[type][0] & mask) != 0 ? 0 : 1;
-        // Set executor's tasks and duration
         int core = (int)idx;
 
-        if (slot == 1) {
-            ctrl->task_id_map2[type][idx] = task_id;
-            #ifdef REAL_CHIP
-            *ctrl->aicore_spr_2[type][idx] = task_id;
-            #endif
+        if (type == TASK_TYPE_MIX) {
+            ctrl->mix_side_done[slot][idx] = 0;
+            bind_core(ctrl, TASK_TYPE_CUBE, slot, idx, task_id);
+            bind_core(ctrl, TASK_TYPE_VECTOR, slot, idx, task_id);
+            set_mix((int)ctrl->tid);
+            WORKER_LOGF("send,mix,task_id,%u,core,%d,slot,%d", task_id, core, slot);
         } else {
-            ctrl->task_id_map1[type][idx] = task_id;
-            #ifdef REAL_CHIP
-            *ctrl->aicore_spr_1[type][idx] = task_id;
-            #endif
+            bind_core(ctrl, type, slot, idx, task_id);
+            set_mix((int)ctrl->tid);
+            WORKER_LOGF("send,task_id,%u,core,%d,slot,%d,type,%d", task_id, core, slot, type);
         }
-
-        // Clear the free bit for this core/slot combination (mark as busy)
-        ctrl->free_bitmap[type][slot] &= ~mask;
-
-        #ifndef REAL_CHIP
-        ctrl->msg_bitmap[type][slot] |= mask;
-        #endif
-
-        WORKER_LOGF("send,task_id,%u,core,%d,slot,%d,type,%d", task_id, core, slot, type);
         sent++;
         free_bitmap &= ~mask;
     }
@@ -265,15 +278,13 @@ int dispatch(int tid)
     int total_sent = 0;
     read_msgq(tid);
     push_2_completed_queue(tid);
+    /* MIX first so dual-free slots are claimed before pure CUBE/VECTOR. */
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);
     return total_sent;
 }
 
-/*
- * Dispatch worker thread entry point Runs the dispatch loop for task distribution
- */
 void *dispatch_worker(void *arg)
 {
     int tid = (int)(intptr_t)arg;
@@ -281,13 +292,10 @@ void *dispatch_worker(void *arg)
     WORKER_LOGF("dispatch,%d,start", tid);
 
     for (size_t i = 0; i < EXE_TYPE_CNT; i++)
-    {        
+    {
         hand_shake(tid, g_ctrl_t[tid].aicore_spr_1[i], i, 0);
         hand_shake(tid, g_ctrl_t[tid].aicore_spr_2[i], i, 64);
     }
-
-    // atomic_store_explicit(&g_is_done, true, memory_order_release);
-    // return NULL;
 
     bool is_done = false;
     while (!is_done) {
