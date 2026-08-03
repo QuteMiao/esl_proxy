@@ -54,6 +54,7 @@ static inline bool update_task_state(int tid, uint32_t cnt, uint32_t* cq_buf)
             }
         }
         atomic_store(&g_min_uncomplete_task, i);
+        /* Cast queue cnt (uint64_t) for log arity; include MIX ready depth. */
         WORKER_LOGF("min_uncomplete_task,%u,total_task_cnt,%u,cube_ready_cnt,%d,vector_ready_cnt,%d,mix_ready_cnt,%d", 
             g_min_uncomplete_task, total_task_cnt,
             (int)g_ctrl_t[0].ready_queue[TASK_TYPE_CUBE].cnt,

@@ -3,6 +3,15 @@
  *
  * Worker thread entry point for Dispatch.
  * This file is compiled separately as it contains pthread-specific code.
+ *
+ * MIX (TASK_TYPE_MIX == 2) model for reviewers
+ * --------------------------------------------
+ * Hardware is modeled as two tracks (CUBE / VECTOR), same core index = one
+ * implicit block.  free_bitmap[CUBE|VECTOR] are authoritative busy/free bits;
+ * free_bitmap[MIX] is derived as (cube & vector) and only used to pick dual-
+ * free indices.  Sending a MIX task occupies BOTH tracks at that index with
+ * the same task_id.  Completing it enqueues the id once after BOTH sides
+ * report (see collect_completed / mix_side_done).
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -17,9 +26,9 @@ extern atomic_bool g_is_done;
 
 ctrl_t g_ctrl_t[DISPATCH_THREAD_CNT];
 
+/* Refresh free_bitmap[MIX] from CUBE∩VECTOR. Never writes CUBE/VECTOR bits. */
 static inline void set_mix(int tid)
 {
-    /* Derive MIX capacity only; never overwrite CUBE/VECTOR free bits. */
     for (int j = 0; j < AIC_OSTD; j++) {
         g_ctrl_t[tid].free_bitmap[TASK_TYPE_MIX][j] =
             g_ctrl_t[tid].free_bitmap[TASK_TYPE_CUBE][j] &
@@ -37,7 +46,7 @@ void init_ctrl_t(void)
             g_ctrl_t[tid].aicore_mask = ~0ULL >> (64 - AIC_CNT_PER_THREAD);
         }
 
-        /* Authoritative free bits are CUBE/VECTOR; MIX is derived below. */
+        /* Init only CUBE/VECTOR free maps; MIX is derived via set_mix(). */
         for (int i = 0; i < EXE_TYPE_CNT; i++) {
             for (int j = 0; j < AIC_OSTD; j++) {
                 g_ctrl_t[tid].free_bitmap[i][j] = g_ctrl_t[tid].aicore_mask;
@@ -121,6 +130,7 @@ static inline void read_msgq(int tid)
     WRITE_REG(MSGQ_VLD3, g_ctrl_t[tid].msg_bitmap[1][1]);
     #endif
 
+    /* Free bits follow completion msgs on each track; then refresh MIX mask. */
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
         for (int j = 0; j < AIC_OSTD; j++) {
             g_ctrl_t[tid].free_bitmap[i][j] |= g_ctrl_t[tid].msg_bitmap[i][j];
@@ -135,9 +145,13 @@ static inline uint32_t *map_ptr(ctrl_t *ctrl, int exe, int slot)
 }
 
 /*
- * Collect completions from one (exe, slot) msg bitmap.
- * MIX (same task_id on both tracks at this core): enqueue only when both sides
- * have reported; on partial, re-busy the freed side so send cannot reuse it.
+ * Drain one (exe, slot) msg bitmap into the completed-id list.
+ *
+ * MIX detection: both tracks at this core hold the same task_id.
+ *   - both sides done (mix_side_done == 0x3) → enqueue id once
+ *   - only one side done → do NOT enqueue; clear free bit again because
+ *     read_msgq already OR-ed it free (stops CUBE/VECTOR reclaiming the core)
+ * Non-MIX: enqueue immediately (same as pre-MIX get_completed).
  */
 static inline void collect_completed(ctrl_t *ctrl, int exe, int slot,
                                      uint64_t *bitmap, uint32_t task_id[],
@@ -183,6 +197,7 @@ static inline void push_2_completed_queue(int tid)
         collect_completed(ctrl, exe, 0, &ctrl->msg_bitmap[exe][0], task_id, &complete_cnt);
         collect_completed(ctrl, exe, 1, &ctrl->msg_bitmap[exe][1], task_id, &complete_cnt);
     }
+    /* Partial MIX may have re-cleared free bits; keep free_bitmap[MIX] in sync. */
     set_mix(tid);
     if (complete_cnt > 0) {
         batch_enqueue(&ctrl->completed_queue, task_id, (uint32_t)complete_cnt);
@@ -190,6 +205,7 @@ static inline void push_2_completed_queue(int tid)
     }
 }
 
+/* Bind task_id onto one execution track (CUBE or VECTOR) at (slot, idx). */
 static inline void bind_core(ctrl_t *ctrl, int exe, int slot, uint64_t idx,
                              uint32_t task_id)
 {
@@ -207,6 +223,7 @@ static inline void bind_core(ctrl_t *ctrl, int exe, int slot, uint64_t idx,
     }
     ctrl->free_bitmap[exe][slot] &= ~mask;
     #ifndef REAL_CHIP
+    /* Fake Return: mark done immediately so sim can drain completed_queue. */
     ctrl->msg_bitmap[exe][slot] |= mask;
     #endif
 }
@@ -214,9 +231,9 @@ static inline void bind_core(ctrl_t *ctrl, int exe, int slot, uint64_t idx,
 static inline int send_task(ctrl_t *ctrl, int type)
 {
     /*
-     * Free demand:
-     * - CUBE/VECTOR: that track's free bits
-     * - MIX: derived free_bitmap[MIX] == cube & vector (same-index implicit block)
+     * Demand = free cores for this type:
+     *   CUBE/VECTOR → that track's free bits
+     *   MIX         → free_bitmap[MIX] (== cube & vector after set_mix)
      */
     uint64_t free_bitmap = (ctrl->free_bitmap[type][0] & ctrl->free_bitmap[type][1])
                           & ctrl->aicore_mask;
@@ -228,7 +245,7 @@ static inline int send_task(ctrl_t *ctrl, int type)
     uint32_t task_ids[AIC_CNT];
     uint32_t got = (uint32_t)free_demand;
     if (!batch_dequeue(&ctrl->ready_queue[type], task_ids, &got)) {
-        /* Cross-die work-stealing: same-type only; no SPMD expand. */
+        /* Cross-die work-stealing: same-type queue only (unchanged policy). */
         int stole = 0;
         for (uint32_t v = 0; v < DISPATCH_THREAD_CNT; v++) {
             if (v == ctrl->tid) {
@@ -257,19 +274,20 @@ static inline int send_task(ctrl_t *ctrl, int type)
         int core = (int)idx;
 
         if (type == TASK_TYPE_MIX) {
+            /* Dual-track occupy at the same index (implicit block). */
             ctrl->mix_side_done[slot][idx] = 0;
             bind_core(ctrl, TASK_TYPE_CUBE, slot, idx, task_id);
             bind_core(ctrl, TASK_TYPE_VECTOR, slot, idx, task_id);
-            set_mix((int)ctrl->tid);
             WORKER_LOGF("send,mix,task_id,%u,core,%d,slot,%d", task_id, core, slot);
         } else {
             bind_core(ctrl, type, slot, idx, task_id);
-            set_mix((int)ctrl->tid);
             WORKER_LOGF("send,task_id,%u,core,%d,slot,%d,type,%d", task_id, core, slot, type);
         }
         sent++;
         free_bitmap &= ~mask;
     }
+    /* One refresh after the batch (CUBE/VECTOR free bits changed). */
+    set_mix((int)ctrl->tid);
     return sent;
 }
 
@@ -278,7 +296,7 @@ int dispatch(int tid)
     int total_sent = 0;
     read_msgq(tid);
     push_2_completed_queue(tid);
-    /* MIX first so dual-free slots are claimed before pure CUBE/VECTOR. */
+    /* MIX first: claim dual-free indices before pure CUBE/VECTOR consume a side. */
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_MIX);
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_VECTOR);
     total_sent += send_task(&g_ctrl_t[tid], TASK_TYPE_CUBE);

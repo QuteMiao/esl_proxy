@@ -19,7 +19,12 @@
 #include "common/task.h"
 
 typedef struct ctrl {
-    /* free_bitmap[CUBE/VECTOR] authoritative; free_bitmap[MIX] derived (cube & vector). */
+    /*
+     * free_bitmap[CUBE|VECTOR]: authoritative per-track free cores.
+     * free_bitmap[MIX]: derived cube&vector (dual-free indices only).
+     * msg_bitmap / task_id_map / aicore_spr: EXE_TYPE (CUBE/VECTOR) only —
+     * MIX binds both tracks at the same core index, not a third hardware track.
+     */
     uint64_t free_bitmap[TASK_TYPE_CNT][AIC_OSTD];
     uint64_t msg_bitmap[EXE_TYPE_CNT][AIC_OSTD];
     
@@ -31,7 +36,7 @@ typedef struct ctrl {
     uint64_t* aicore_spr_1[EXE_TYPE_CNT][AIC_CNT];
     uint64_t* aicore_spr_2[EXE_TYPE_CNT][AIC_CNT];
 
-    /* MIX dual-side completion: bit0=CUBE done, bit1=VECTOR done at (slot, core). */
+    /* MIX: bit0=CUBE side done, bit1=VECTOR side done; enqueue when == 0x3. */
     uint8_t mix_side_done[AIC_OSTD][AIC_CNT];
 
     queue_t  ready_queue[TASK_TYPE_CNT];

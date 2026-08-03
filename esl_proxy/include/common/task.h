@@ -15,7 +15,7 @@ typedef uint32_t task_id_t;
 typedef enum {
     TASK_TYPE_CUBE   = 0,
     TASK_TYPE_VECTOR = 1,
-    TASK_TYPE_MIX    = 2,
+    TASK_TYPE_MIX    = 2, /* own ready_queue; previously aliased to VECTOR(=1) */
     TASK_TYPE_CNT    = 3,
 } task_type_t;
 
