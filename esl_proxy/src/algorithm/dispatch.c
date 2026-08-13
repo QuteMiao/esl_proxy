@@ -10,6 +10,7 @@
 #include "lat_trace.h"
 #include "log.h"
 #include "ring_buf.h"
+#include "swimlane.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -95,6 +96,7 @@ static inline void drain_completed_snapshot(int tid)
 {
     uint32_t task_id[EXE_TYPE_CNT * AIC_OSTD * AIC_CNT];
     uint32_t complete_cnt = 0;
+    uint64_t swim_start = swim_now();
 
     for (int i = 0; i < EXE_TYPE_CNT; i++) {
         for (int j = 0; j < AIC_OSTD; j++) {
@@ -110,6 +112,8 @@ static inline void drain_completed_snapshot(int tid)
                 assert(atomic_load_explicit(&g_executors[i][idx].slot_state[j],
                                             memory_order_acquire) == EXE_SLOT_EMPTY);
                 task_id[complete_cnt] = g_ctrl_t[tid].task_id_map[j][i][idx];
+                /* 泳道 fin 段终点：executor 写完 done bit 到这里被看见的延迟 */
+                swim_task_finish(task_id[complete_cnt]);
                 WORKER_LOGF("completed,complete_cnt,%u,task_id,%u,core,%llu,bitmap,%llu",
                             complete_cnt,
                             task_id[complete_cnt],
@@ -127,6 +131,12 @@ static inline void drain_completed_snapshot(int tid)
     }
     if (complete_cnt > 0) {
         batch_enqueue(&g_ctrl_t[tid].completed_queue, task_id, complete_cnt);
+        /*
+         * 只有真收到完成才落阶段条。dispatch 主循环是百万次量级，
+         * 空转轮全记会把内存和 Perfetto 一起撑爆；空转由相邻两条之间的空隙表示。
+         */
+        swim_phase(SWIM_ROLE_DISPATCH, SWIM_PH_DISP_DRAIN, tid, 0, complete_cnt,
+                   swim_start, swim_now());
     }
     atomic_fetch_add_explicit(&g_completed_cnt, complete_cnt, memory_order_relaxed);
 }
@@ -156,6 +166,7 @@ static inline void drain_completed_snapshot(int tid)
 static inline int send_task(ctrl_t *ctrl, int type)
 {
     int exe_type = type;
+    uint64_t swim_start = swim_now();
     /*
      * PING-PONG 语义：executor 每核同时只跑一个 slot，其余 slot 用作预装载位，
      * 所以「任一 slot 空闲」的核都可以派发，不必等全部 slot 空。
@@ -285,6 +296,13 @@ static inline int send_task(ctrl_t *ctrl, int type)
 #endif
 
         /*
+         * 泳道打点必须早于发布 RUNNABLE：executor 在另一个线程，槽位一发布
+         * 它下一拍就可能认领甚至跑完，那时 scratch 还是上一代内容，run/end 会被丢掉。
+         */
+        swim_task_publish(task_id, core, exe_type, slot,
+                          g_basic_buf[task_id & RING_MASK].count);
+
+        /*
          * Step 2 normal 发布链：
          * payload + task_id_map 写完后，release 发布 RUNNABLE。
          * executor 只有 acquire 读到 RUNNABLE 才允许读取 payload。
@@ -300,6 +318,10 @@ static inline int send_task(ctrl_t *ctrl, int type)
         /* Step 4 Hook 0：成功发布后沿边传播 dispatch_fanin。 */
         propagate_dispatch_fanin(task_id);
 #endif
+    }
+    if (sent > 0) {
+        swim_phase(SWIM_ROLE_DISPATCH, SWIM_PH_DISP_SEND, (int)(ctrl - g_ctrl_t), type,
+                   (uint32_t)sent, swim_start, swim_now());
     }
     return sent;
 }
@@ -363,11 +385,18 @@ int dispatch(int tid)
      * 顺带也省掉了这一轮的 dequeue / pick_stage_core / re-push 开销。
      */
     if (!has_pending_normal_work(tid)) {
+        uint64_t swim_ed_start = swim_now();
+        int staged = 0;
         for (int k = 0; k < ED_DRAIN_MAX_PER_ROUND; k++) {
             if (try_early_dispatch(tid) == 0) {
                 break;
             }
+            staged++;
             total_sent++;
+        }
+        if (staged > 0) {
+            swim_phase(SWIM_ROLE_DISPATCH, SWIM_PH_DISP_ED, tid, 0, (uint32_t)staged,
+                       swim_ed_start, swim_now());
         }
     }
 #endif

@@ -2,3 +2,7 @@ log/*
 esl_proxy/include/platform/a6.h
 bin/*
 report/*
+# 泳道图产物；二进制在 esl_proxy/ 里跑，所以落在这一层的 report/ 下。
+# 上面那条 report/* 带斜杠是锚定到仓库根的，管不到这里。
+esl_proxy/report/
+esl_proxy/.cache/

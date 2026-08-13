@@ -3,6 +3,7 @@
 #include "lat_trace.h"
 #include "log.h"
 #include "ring_buf.h"
+#include "swimlane.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -316,6 +317,7 @@ void resolve_dep(uint32_t cnt, uint32_t* cq_buf, uint32_t rq_buf[][RQ_BATCH_SIZE
                  */
                 ed_lat_mark_ready(succ_id);
                 lat_trace_ready(succ_id);
+                swim_mark(succ_id, SWIM_MK_READY);
 #if ED_ENABLE && !ED_ABLATE_CUTTER
                 /* Step 6 Hook 2：1->0 线程统一切到 DISPATCHED，并通过 notify_once 竞争唯一通知。 */
                 assert(old_unfin == 1);
@@ -354,9 +356,28 @@ void deal_completed_queue(void) {
         //     WORKER_LOGF("cutter, completed_task_id,%d ", cq_buf[i]);
         // }
         update_task_state(cnt, cq_buf);
+
+        /*
+         * 只在提交游标真前进 / 真有完成事件时落阶段条，理由同 dispatcher 侧。
+         * 泳道号用的是本轮处理的 dispatcher 队列号（也就是循环变量 i），不是
+         * cutter 线程号——deal_completed_queue 拿不到后者。当前只支持
+         * CUTTER_THREAD_CNT=1，两者恒为 0；真要多 cutter 线程时得把线程号传进来。
+         */
+        uint32_t commit_before = g_commit_task_id;
+        uint64_t swim_commit_start = swim_now();
         add_successors(ready_cnt, rq_buf);
+        if (g_commit_task_id != commit_before) {
+            swim_phase(SWIM_ROLE_CUTTER, SWIM_PH_CUT_COMMIT, i, 0,
+                       g_commit_task_id - commit_before, swim_commit_start, swim_now());
+        }
+
+        uint64_t swim_resolve_start = swim_now();
         resolve_dep(cnt, cq_buf, rq_buf, ready_cnt);
         send_2_ready_queue(ready_cnt, rq_buf);
+        if (cnt > 0) {
+            swim_phase(SWIM_ROLE_CUTTER, SWIM_PH_CUT_RESOLVE, i, 0, cnt,
+                       swim_resolve_start, swim_now());
+        }
     }
 }
 

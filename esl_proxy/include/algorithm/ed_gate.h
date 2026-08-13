@@ -20,6 +20,7 @@
 #include "executor.h"
 #include "lat_trace.h"
 #include "log.h"
+#include "swimlane.h"
 
 #if ED_ENABLE
 
@@ -59,6 +60,8 @@ static inline bool ed_poll_doorbell(int type, int core, int slot)
     /* KPI 终点（ED 放行路径）：开闸即该任务转为可执行 */
     ed_lat_mark_runnable(e->tasks[slot], ED_LAT_EARLY);
     lat_trace_run(e->tasks[slot], LAT_TRACE_PATH_ED);
+    /* 泳道：GATED 段到此结束，任务转为可执行（真正开跑还要等主扫描认领） */
+    swim_task_ungate(e->tasks[slot]);
     WORKER_LOGF("gate_open, task=%u, core=%d, slot=%d", e->tasks[slot], core, slot);
     /*
      * dispatch_fanin 的语义是「前驱已进入可运行状态」，与它走哪条路径无关。

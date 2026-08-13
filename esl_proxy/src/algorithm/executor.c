@@ -16,6 +16,7 @@
 #include "early_dispatch.h"
 #include "ed_gate.h"
 #include "ring_buf.h"
+#include "swimlane.h"
 
 #ifndef ED_A11_PROBE
 #define ED_A11_PROBE 0
@@ -57,6 +58,12 @@ void executor_init(void)
 static inline void complete_slot(int type, int core, int slot, uint16_t task_id_done)
 {
     executor_t *e = &g_executors[type][core];
+    /*
+     * 必须早于下面发布 EMPTY / done bit：泳道要求 end 严格早于 dispatcher 回填的
+     * finish，一旦发布出去 dispatcher 下一拍就可能 drain 到它。
+     * 用 e->tasks[slot] 而不是 task_id_done——后者被截成 16 位，任务数过 65535 会回绕。
+     */
+    swim_task_end(e->tasks[slot]);
     e->block_idx[slot] = 0;
     e->idx = AIC_OSTD;
 #if ED_ENABLE && !ED_ABLATE_COMPLETE
@@ -132,6 +139,12 @@ void* executor_worker(void *arg)
                         }
                         e->idx = (uint8_t)slot;
                         active = (uint8_t)slot;
+                        /*
+                         * 泳道的 run 起点。放在认领处而不是槽位变 RUNNABLE 处：
+                         * 该核此刻可能正忙着别的 slot，两者之间那段等待就是
+                         * 预装载位上的排队，正是要看的东西。
+                         */
+                        swim_task_run(e->tasks[slot]);
                         break;
                     }
                     if (active >= AIC_OSTD) {

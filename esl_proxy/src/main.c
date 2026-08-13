@@ -17,6 +17,7 @@
 #include "log.h"
 #include "manager.h"
 #include "mem_pool.h"
+#include "swimlane.h"
 
 #ifndef ORCH_CASE
 #define ORCH_CASE qwen3_dynamic_manual_scope.h
@@ -92,6 +93,8 @@ int main(void) {
     init_ctrl_t();
     ed_init();
     lat_trace_init();
+    /* 必须早于任何线程启动：t0 与缓冲都在这里就位 */
+    swim_init();
 
     executor_init();
 
@@ -110,10 +113,13 @@ int main(void) {
                        (void *)(intptr_t)i);
     }
 #if ORCHESTRATION_TIME
+    uint64_t swim_orch_start = swim_now();
     uint64_t start_ns = get_time_ns();
     aicpu_orchestration_entry(0);
     uint64_t end_ns = get_time_ns();
     uint64_t elapsed_ns = end_ns - start_ns;
+    swim_phase(SWIM_ROLE_ORCH, SWIM_PH_ORCH, 0, 0, g_task_id, swim_orch_start,
+               swim_now());
 
     MAIN_LOGF("[orchestration] task_cnt = %u", g_task_id);
     MAIN_LOGF("[orchestration] subtask_cnt = %llu", (unsigned long long)g_subtask_cnt);
@@ -121,7 +127,10 @@ int main(void) {
     MAIN_LOGF("[orchestration] task_tp = %f MTasks/s", (float)(g_task_id * 1000.0 / elapsed_ns));
     MAIN_LOGF("[orchestration] subtask_tp = %f MTasks/s", (float)(g_subtask_cnt * 1000.0 / elapsed_ns));
 #else
+    uint64_t swim_orch_start = swim_now();
     aicpu_orchestration_entry(0);
+    swim_phase(SWIM_ROLE_ORCH, SWIM_PH_ORCH, 0, 0, g_task_id, swim_orch_start,
+               swim_now());
 #endif
     atomic_store(&g_orch_is_done, true);
 
@@ -279,6 +288,8 @@ int main(void) {
     }
 
     lat_trace_dump();
+    /* 线程都已 join，落盘无需同步 */
+    swim_dump();
 
 #if WORKER_LOG
     log_close();

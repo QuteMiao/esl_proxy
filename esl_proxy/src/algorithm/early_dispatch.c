@@ -19,6 +19,7 @@
 #include "log.h"
 #include "ring_buf.h"
 #include "spin.h"
+#include "swimlane.h"
 #include "task.h"
 
 #ifndef ED_A10_FORCE_SELF_NOTIFY
@@ -340,6 +341,8 @@ void ed_notify_once(uint32_t task_id, uint64_t record, ed_notify_source_t source
     atomic_store_explicit(&g_executors[type][core].doorbell[slot], 1, memory_order_release);
     WORKER_LOGF("notify_write, s=%u, source=%s",
                 task_id, (source == ED_NOTIFY_HOOK2) ? "hook2" : "hook1");
+    swim_mark(task_id, (source == ED_NOTIFY_HOOK2) ? SWIM_MK_NOTIFY_H2
+                                                   : SWIM_MK_NOTIFY_H1);
     if (source == ED_NOTIFY_HOOK2) {
         atomic_fetch_add_explicit(&g_ed_hit_cnt, 1, memory_order_relaxed);
     } else {
@@ -599,6 +602,8 @@ int try_early_dispatch(int tid)
     uint32_t raw_duration = g_basic_buf[s_idx].duration;
     g_executors[type][core].duration[slot] = SCALE_EXEC_DURATION(raw_duration);
     g_ctrl_t[tid].task_id_map[slot][type][core] = s_id;
+    /* 泳道 GATED 段起点；必须早于发布 GATED，理由同 send_task 里那处 */
+    swim_task_stage(s_id, core, (int)type, slot, count);
     atomic_store_explicit(&g_executors[type][core].slot_state[slot],
                           EXE_SLOT_GATED, memory_order_release);
     /*
