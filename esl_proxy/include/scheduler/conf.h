@@ -27,9 +27,6 @@ extern barrier_t g_start_barrier;
 #define DIE_CNT 2
 #define EXE_TYPE_CNT 2
 
-#define SPSC_QUEUE_SIZE 2048
-#define SPSC_QUEUE_MASK (SPSC_QUEUE_SIZE - 1)
-
 #define CQ_BATCH_SIZE 512
 #define PRE_BATCH_SIZE 240
 #define RQ_BATCH_SIZE 512
